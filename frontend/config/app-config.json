@@ -1,0 +1,25 @@
+{
+    "theme": {
+        "mode": "light",
+        "loadingScreen": {
+            "backgroundColor": "#ffffff",
+            "logo": "/static/assets/logo_bg_bl.png",
+            "logoAlt": "/static/assets/logo_bg.png",
+            "progressBarColor": "#3B82F6",
+            "progressBarBackground": "#e5e7eb"
+        },
+        "dark": {
+            "loadingScreen": {
+                "backgroundColor": "#121212",
+                "logo": "/static/assets/logo_bg.png",
+                "progressBarColor": "#3B82F6",
+                "progressBarBackground": "#333333"
+            }
+        }
+    },
+    "app": {
+        "name": "ETTA-X",
+        "version": "1.0.0",
+        "loadingDuration": 3000
+    }
+}
