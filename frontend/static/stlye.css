@@ -14,7 +14,7 @@ body {
 /* Top Bar */
 .top-bar {
     position: fixed;
-    top: 0;
+    top: 32px;
     left: 0;
     right: 0;
     height: 64px;
@@ -22,19 +22,160 @@ body {
     border-bottom: 1px solid #e5e7eb;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 0 24px;
     z-index: 100;
+    gap: 16px;
+}
+
+/* Header Left Section */
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
 }
 
 .logo {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     font-size: 20px;
     font-weight: 700;
     color: #1f2937;
     letter-spacing: 0.5px;
+}
+
+.logo img {
+    flex-shrink: 0;
+}
+
+/* Header Spacer - pushes right content to the end */
+.header-spacer {
+    flex: 1;
+}
+
+/* Header Right Section */
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+}
+
+/* Repo Branch Controls */
+.repo-branch-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.platform-description {
+    color: #6b7280;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.separator {
+    color: #d1d5db;
+    font-weight: 300;
+}
+
+.repo-selector,
+.branch-selector {
+    display: flex;
+    align-items: center;
+}
+
+.repo-dropdown,
+.branch-dropdown {
+    padding: 6px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #1f2937;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    min-width: 160px;
+    transition: all 0.2s;
+}
+
+.repo-dropdown:hover,
+.branch-dropdown:hover {
+    border-color: #3B82F6;
+}
+
+.repo-dropdown:focus,
+.branch-dropdown:focus {
+    border-color: #3B82F6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.repo-dropdown:disabled,
+.branch-dropdown:disabled {
+    background: #f9fafb;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.clone-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: #3B82F6;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.clone-btn:hover:not(:disabled) {
+    background: #2563EB;
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.clone-btn:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.clone-btn svg {
+    flex-shrink: 0;
+}
+
+/* Legacy header-info support */
+.header-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #6b7280;
+}
+
+.repo-info,
+.branch-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.repo-label,
+.branch-label {
+    color: #6b7280;
+}
+
+.repo-name,
+.branch-name {
+    color: #3B82F6;
+    font-weight: 600;
 }
 
 .profile {
@@ -55,11 +196,126 @@ body {
     transform: scale(1.05);
 }
 
+/* Profile Dropdown */
+.profile-dropdown-container {
+    position: relative;
+}
+
+.profile-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 240px;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    z-index: 200;
+    overflow: hidden;
+}
+
+.profile-dropdown.open {
+    display: block;
+    animation: dropdownFadeIn 0.2s ease;
+}
+
+@keyframes dropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.profile-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+}
+
+.profile-dropdown-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+}
+
+.profile-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.profile-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.profile-username {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.profile-dropdown-divider {
+    height: 1px;
+    background-color: #e5e7eb;
+}
+
+.profile-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    color: #6b7280;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.profile-dropdown-item:hover {
+    background-color: #f9fafb;
+    color: #1f2937;
+}
+
+.profile-dropdown-item.logout-item {
+    color: #dc2626;
+}
+
+.profile-dropdown-item.logout-item:hover {
+    background-color: #fef2f2;
+    color: #dc2626;
+}
+
+.profile-dropdown-item.login-item {
+    color: #3B82F6;
+}
+
+.profile-dropdown-item.login-item:hover {
+    background-color: #eff6ff;
+    color: #3B82F6;
+}
+
+/* Logout item in settings dropdown */
+.dropdown-item.logout-item {
+    color: #dc2626;
+}
+
+.dropdown-item.logout-item:hover {
+    background-color: #fef2f2;
+    color: #dc2626;
+}
+
 /* Sidebar */
 .sidebar {
     position: fixed;
     left: 0;
-    top: 64px;
+    top: 96px;
     bottom: 0;
     width: 240px;
     background-color: #ffffff;
@@ -160,6 +416,54 @@ body.dark-theme .logo {
     color: #ffffff;
 }
 
+body.dark-theme .header-info {
+    color: #b0b0b0;
+}
+
+body.dark-theme .platform-description {
+    color: #b0b0b0;
+}
+
+body.dark-theme .separator {
+    color: #4b5563;
+}
+
+body.dark-theme .repo-dropdown,
+body.dark-theme .branch-dropdown {
+    background: #2a2a2a;
+    border-color: #404040;
+    color: #e5e5e5;
+}
+
+body.dark-theme .repo-dropdown:hover,
+body.dark-theme .branch-dropdown:hover {
+    border-color: #60a5fa;
+}
+
+body.dark-theme .repo-dropdown:disabled,
+body.dark-theme .branch-dropdown:disabled {
+    background: #1e1e1e;
+    color: #666666;
+}
+
+body.dark-theme .clone-btn {
+    background: #3B82F6;
+}
+
+body.dark-theme .clone-btn:disabled {
+    background: #4b5563;
+}
+
+body.dark-theme .repo-label,
+body.dark-theme .branch-label {
+    color: #b0b0b0;
+}
+
+body.dark-theme .repo-name,
+body.dark-theme .branch-name {
+    color: #60a5fa;
+}
+
 body.dark-theme .sidebar {
     background-color: #1e1e1e;
     border-right-color: #333333;
@@ -193,6 +497,60 @@ body.dark-theme .dropdown-item:hover {
     color: #3B82F6;
 }
 
+body.dark-theme .dropdown-item.logout-item {
+    color: #f87171;
+}
+
+body.dark-theme .dropdown-item.logout-item:hover {
+    background-color: #3f1d1d;
+    color: #f87171;
+}
+
+/* Dark Theme Profile Dropdown */
+body.dark-theme .profile-dropdown {
+    background-color: #1e1e1e;
+    border-color: #333333;
+}
+
+body.dark-theme .profile-name {
+    color: #ffffff;
+}
+
+body.dark-theme .profile-username {
+    color: #888888;
+}
+
+body.dark-theme .profile-dropdown-divider {
+    background-color: #333333;
+}
+
+body.dark-theme .profile-dropdown-item {
+    color: #b0b0b0;
+}
+
+body.dark-theme .profile-dropdown-item:hover {
+    background-color: #2a2a2a;
+    color: #ffffff;
+}
+
+body.dark-theme .profile-dropdown-item.logout-item {
+    color: #f87171;
+}
+
+body.dark-theme .profile-dropdown-item.logout-item:hover {
+    background-color: #3f1d1d;
+    color: #f87171;
+}
+
+body.dark-theme .profile-dropdown-item.login-item {
+    color: #60a5fa;
+}
+
+body.dark-theme .profile-dropdown-item.login-item:hover {
+    background-color: #1e3a5f;
+    color: #60a5fa;
+}
+
 body.dark-theme .main-content {
     background-color: #121212;
 }
@@ -209,16 +567,26 @@ body.dark-theme .main-content {
 }
 
 /* Responsive */
+/* Main Content */
+.main-content {
+    margin-left: 240px;
+    padding-top: 96px;
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-bottom: 24px;
+    min-height: 100vh;
+}
+
 @media (max-width: 768px) {
     .sidebar {
         width: 64px;
     }
-    
+
     .menu-item span {
         display: none;
     }
-    
+
     .main-content {
-        left: 64px;
+        margin-left: 64px;
     }
 }

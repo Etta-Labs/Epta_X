@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +8,176 @@
     <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
     <link rel="stylesheet" href="/static/loading.css">
 </head>
-<body>
+
+<body style="padding-top: 32px;">
+    <!-- Custom Title Bar for Electron -->
+    <div id="titlebar" class="titlebar">
+        <div class="titlebar-left">
+            <div class="menu-dropdown" id="file-menu">
+                <button class="menu-btn">File</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.reload()">Reload</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.quit()">Exit</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="view-menu">
+                <button class="menu-btn">View</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.zoomIn()">Zoom In</a>
+                    <a href="#" onclick="window.electronAPI?.zoomOut()">Zoom Out</a>
+                    <a href="#" onclick="window.electronAPI?.resetZoom()">Reset Zoom</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="help-menu">
+                <button class="menu-btn">Help</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.showAbout()">About ETTA-X</a>
+                </div>
+            </div>
+        </div>
+        <div class="titlebar-center">
+            <span class="titlebar-title">ETTA-X</span>
+        </div>
+        <div class="titlebar-right">
+            <button class="window-btn" onclick="window.electronAPI?.minimize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="5.5" width="8" height="1" fill="currentColor" />
+                </svg>
+            </button>
+            <button class="window-btn" onclick="window.electronAPI?.maximize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="2" width="8" height="8" stroke="currentColor" fill="none" stroke-width="1" />
+                </svg>
+            </button>
+            <button class="window-btn close-btn" onclick="window.electronAPI?.close()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+            </button>
+        </div>
+    </div>
+    <style>
+        .titlebar {
+            display: flex;
+            align-items: center;
+            height: 32px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            -webkit-app-region: drag;
+            user-select: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+        }
+
+        .titlebar-left {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            -webkit-app-region: no-drag;
+            padding-left: 8px;
+        }
+
+        .titlebar-center {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .titlebar-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            letter-spacing: 0.5px;
+        }
+
+        .titlebar-right {
+            display: flex;
+            height: 100%;
+            -webkit-app-region: no-drag;
+        }
+
+        .menu-dropdown {
+            position: relative;
+            height: 100%;
+        }
+
+        .menu-btn {
+            height: 100%;
+            padding: 0 12px;
+            background: transparent;
+            border: none;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .menu-btn:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        .menu-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 180px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+            padding: 4px 0;
+            z-index: 10000;
+        }
+
+        .menu-dropdown:hover .menu-content {
+            display: block;
+        }
+
+        .menu-content a {
+            display: block;
+            padding: 8px 16px;
+            color: #374151;
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .menu-content a:hover {
+            background-color: #f3f4f6;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: #e5e7eb;
+            margin: 4px 0;
+        }
+
+        .window-btn {
+            width: 46px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+        }
+
+        .window-btn:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        .window-btn.close-btn:hover {
+            background-color: #e81123;
+            color: white;
+        }
+    </style>
     <div class="loading-container">
         <div class="logo-container">
             <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="logo-img" id="loading-logo">
@@ -21,4 +191,5 @@
 
     <script src="/static/loading.js"></script>
 </body>
+
 </html>

@@ -1,22 +1,816 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ETTA-X Dashboard</title>
     <link rel="stylesheet" href="/static/stlye.css">
-    <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon" >
+    <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
+    <style>
+        /* Login Modal */
+        .login-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
 
+        .login-modal-overlay.active {
+            display: flex;
+        }
+
+        .login-modal {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 520px;
+            min-width: 400px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.3s ease;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .login-modal-logo {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 24px;
+        }
+
+        .login-modal h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .login-modal p {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .login-modal-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            width: 100%;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            margin-bottom: 12px;
+        }
+
+        .login-modal-btn.primary {
+            background: #3B82F6;
+            color: #fff;
+        }
+
+        .login-modal-btn.primary:hover {
+            background: #2563EB;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        .login-modal-btn.secondary {
+            background: #ffffff;
+            color: #3B82F6;
+            border: 2px solid #3B82F6;
+        }
+
+        .login-modal-btn.secondary:hover {
+            background: #EFF6FF;
+        }
+
+        .login-modal-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .login-modal-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #9ca3af;
+            padding: 4px;
+        }
+
+        .login-modal-close:hover {
+            color: #1a1a1a;
+        }
+
+        .login-modal-wrapper {
+            position: relative;
+        }
+
+        .previous-account {
+            background: #f8f9fa;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .previous-account:hover {
+            border-color: #3B82F6;
+            background: #EFF6FF;
+        }
+
+        .previous-account img {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 2px solid #3B82F6;
+        }
+
+        .previous-account-info {
+            text-align: left;
+        }
+
+        .previous-account-name {
+            font-weight: 600;
+            color: #1a1a1a;
+            font-size: 15px;
+        }
+
+        .previous-account-username {
+            color: #3B82F6;
+            font-size: 13px;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 20px 0;
+            color: #9ca3af;
+            font-size: 13px;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #e5e7eb;
+        }
+
+        .divider::before {
+            margin-right: 12px;
+        }
+
+        .divider::after {
+            margin-left: 12px;
+        }
+
+        /* Repo/Branch Dropdowns and Clone Button */
+        .repo-dropdown,
+        .branch-dropdown {
+            padding: 6px 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #ffffff;
+            color: #1f2937;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        .repo-dropdown:hover,
+        .branch-dropdown:hover {
+            border-color: #3B82F6;
+        }
+
+        .repo-dropdown:focus,
+        .branch-dropdown:focus {
+            border-color: #3B82F6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .repo-dropdown option,
+        .branch-dropdown option {
+            padding: 8px;
+        }
+
+        .clone-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 16px;
+            background: #3B82F6;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-left: 8px;
+        }
+
+        .clone-btn:hover:not(:disabled) {
+            background: #2563EB;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+
+        .clone-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .clone-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Clone Confirmation Modal */
+        .clone-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+
+        .clone-modal-overlay.active {
+            display: flex;
+        }
+
+        .clone-modal {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 480px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.3s ease;
+        }
+
+        .clone-modal-wrapper {
+            position: relative;
+        }
+
+        .clone-modal-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #9ca3af;
+            padding: 4px;
+        }
+
+        .clone-modal-close:hover {
+            color: #1a1a1a;
+        }
+
+        .clone-icon {
+            width: 64px;
+            height: 64px;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .clone-icon svg {
+            color: #3B82F6;
+        }
+
+        .clone-modal h2 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+        }
+
+        .clone-message {
+            color: #6b7280;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .clone-repo-highlight,
+        .clone-branch-highlight {
+            color: #1a1a1a;
+            font-weight: 700;
+        }
+
+        .clone-modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .clone-modal-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .clone-modal-btn.confirm {
+            background: #3B82F6;
+            color: #fff;
+        }
+
+        .clone-modal-btn.confirm:hover {
+            background: #2563EB;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        .clone-modal-btn.cancel {
+            background: #ffffff;
+            color: #6b7280;
+            border: 2px solid #e5e7eb;
+        }
+
+        .clone-modal-btn.cancel:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+    </style>
 </head>
-<body>
+
+<body style="padding-top: 32px;">
+
+    <!-- Custom Title Bar for Electron -->
+    <div id="titlebar" class="titlebar">
+        <!-- Left: Menu Items -->
+        <div class="titlebar-left">
+            <div class="menu-dropdown" id="file-menu">
+                <button class="menu-btn">File</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.reload()">Reload</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.clearCache()">Clear Cache & Reset</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.quit()">Exit</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="view-menu">
+                <button class="menu-btn">View</button>
+                <div class="menu-content">
+                    <a href="#" onclick="toggleTheme && toggleTheme()">Toggle Theme</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.zoomIn()">Zoom In</a>
+                    <a href="#" onclick="window.electronAPI?.zoomOut()">Zoom Out</a>
+                    <a href="#" onclick="window.electronAPI?.resetZoom()">Reset Zoom</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.toggleFullscreen()">Toggle Fullscreen</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="help-menu">
+                <button class="menu-btn">Help</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.showAbout()">About ETTA-X</a>
+                    <a href="#" onclick="window.electronAPI?.toggleDevTools()">Developer Tools</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: ETTA-X Title -->
+        <div class="titlebar-center">
+            <span class="titlebar-title">ETTA-X</span>
+        </div>
+
+        <!-- Right: Window Controls -->
+        <div class="titlebar-right">
+            <button class="window-btn" id="minimize-btn" onclick="window.electronAPI?.minimize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="5.5" width="8" height="1" fill="currentColor" />
+                </svg>
+            </button>
+            <button class="window-btn" id="maximize-btn" onclick="window.electronAPI?.maximize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="2" width="8" height="8" stroke="currentColor" fill="none" stroke-width="1" />
+                </svg>
+            </button>
+            <button class="window-btn close-btn" id="close-btn" onclick="window.electronAPI?.close()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <style>
+        /* Title Bar Styles */
+        .titlebar {
+            display: flex;
+            align-items: center;
+            height: 32px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            -webkit-app-region: drag;
+            user-select: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+        }
+
+        .titlebar-left {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            -webkit-app-region: no-drag;
+            padding-left: 8px;
+        }
+
+        .titlebar-center {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .titlebar-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            letter-spacing: 0.5px;
+        }
+
+        .titlebar-right {
+            display: flex;
+            height: 100%;
+            -webkit-app-region: no-drag;
+        }
+
+        /* Menu Buttons */
+        .menu-dropdown {
+            position: relative;
+            height: 100%;
+        }
+
+        .menu-btn {
+            height: 100%;
+            padding: 0 12px;
+            background: transparent;
+            border: none;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+
+        .menu-btn:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        /* Dropdown Menu */
+        .menu-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 180px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+            padding: 4px 0;
+            z-index: 10000;
+        }
+
+        .menu-dropdown:hover .menu-content,
+        .menu-dropdown.active .menu-content {
+            display: block;
+        }
+
+        .menu-content a {
+            display: block;
+            padding: 8px 16px;
+            color: #374151;
+            text-decoration: none;
+            font-size: 13px;
+            transition: background-color 0.15s;
+        }
+
+        .menu-content a:hover {
+            background-color: #f3f4f6;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: #e5e7eb;
+            margin: 4px 0;
+        }
+
+        /* Window Control Buttons */
+        .window-btn {
+            width: 46px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+
+        .window-btn:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        .window-btn.close-btn:hover {
+            background-color: #e81123;
+            color: white;
+        }
+
+        /* Dark Theme for Title Bar */
+        body.dark-theme .titlebar {
+            background-color: #1e1e1e;
+            border-bottom-color: #333333;
+        }
+
+        body.dark-theme .titlebar-title {
+            color: #e5e5e5;
+        }
+
+        body.dark-theme .menu-btn {
+            color: #cccccc;
+        }
+
+        body.dark-theme .menu-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .menu-content {
+            background: #2d2d2d;
+            border-color: #404040;
+        }
+
+        body.dark-theme .menu-content a {
+            color: #cccccc;
+        }
+
+        body.dark-theme .menu-content a:hover {
+            background-color: #3d3d3d;
+        }
+
+        body.dark-theme .menu-divider {
+            background: #404040;
+        }
+
+        body.dark-theme .window-btn {
+            color: #cccccc;
+        }
+
+        body.dark-theme .window-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .window-btn.close-btn:hover {
+            background-color: #e81123;
+            color: white;
+        }
+    </style>
+
+    <script>
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.menu-dropdown')) {
+                document.querySelectorAll('.menu-dropdown').forEach(d => d.classList.remove('active'));
+            }
+        });
+
+        // Toggle dropdown on click
+        document.querySelectorAll('.menu-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dropdown = btn.parentElement;
+                const isActive = dropdown.classList.contains('active');
+                document.querySelectorAll('.menu-dropdown').forEach(d => d.classList.remove('active'));
+                if (!isActive) dropdown.classList.add('active');
+            });
+        });
+    </script>
+
+    <!-- Login Modal -->
+    <div class="login-modal-overlay" id="login-modal">
+        <div class="login-modal-wrapper">
+            <div class="login-modal">
+                <button class="login-modal-close" onclick="closeLoginModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X" class="login-modal-logo">
+                <h2>Sign in to ETTA-X</h2>
+                <p>Sign in to access all features</p>
+
+                <div id="previous-account-section" style="display: none;">
+                    <div class="previous-account" id="previous-account" onclick="loginWithPreviousAccount()">
+                        <img src="/static/assets/profile.png" alt="Profile" id="prev-account-avatar">
+                        <div class="previous-account-info">
+                            <div class="previous-account-name" id="prev-account-name">User</div>
+                            <div class="previous-account-username" id="prev-account-username">@username</div>
+                        </div>
+                    </div>
+                    <div class="divider">or</div>
+                </div>
+
+                <button class="login-modal-btn primary" onclick="loginWithGitHub()">
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path
+                            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                    </svg>
+                    Sign in with GitHub
+                </button>
+                <button class="login-modal-btn secondary" onclick="loginWithDifferentAccount()">
+                    Use Different Account
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clone Confirmation Modal -->
+    <div class="clone-modal-overlay" id="clone-modal">
+        <div class="clone-modal-wrapper">
+            <div class="clone-modal">
+                <button class="clone-modal-close" onclick="closeCloneModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+                <div class="clone-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                </div>
+                <h2>Confirm Repository Clone</h2>
+                <p class="clone-message">
+                    Are you sure you want to clone
+                    <strong class="clone-repo-highlight" id="clone-repo-text"></strong>
+                    from the
+                    <strong class="clone-branch-highlight" id="clone-branch-text"></strong>
+                    branch?
+                </p>
+                <div class="clone-modal-actions">
+                    <button class="clone-modal-btn confirm" onclick="confirmClone()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        Confirm Clone
+                    </button>
+                    <button class="clone-modal-btn cancel" onclick="cancelClone()">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Top Bar -->
     <header class="top-bar">
-        <div class="logo">
-            <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" width="32" height="32" id="logo-img">
-            <span>ETTA-X</span>
+        <div class="header-left">
+            <div class="logo">
+                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" width="32" height="32" id="logo-img">
+                <span>ETTA-X</span>
+            </div>
+            <span class="separator">|</span>
+            <span class="platform-description">AI Test Automation Platform</span>
         </div>
-        <div class="profile">
-            <img src="/static/assets/profile.png" alt="Profile" class="profile-icon">
+
+        <div class="header-spacer"></div>
+
+        <div class="header-right">
+            <div class="repo-branch-controls">
+                <div class="repo-selector">
+                    <select class="repo-dropdown" id="repo-select">
+                        <option value="" disabled selected>Select Repository</option>
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+                <div class="branch-selector">
+                    <select class="branch-dropdown" id="branch-select" disabled>
+                        <option value="" disabled selected>Select Branch</option>
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+                <button class="clone-btn" id="clone-btn" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Clone
+                </button>
+            </div>
+            <span class="separator">|</span>
+            <div class="profile">
+                <div class="profile-dropdown-container">
+                    <img src="/static/assets/profile.png" alt="Profile" class="profile-icon" id="profile-toggle"
+                        width="40" height="40">
+                    <div class="profile-dropdown" id="profile-dropdown" style="display: none;">
+                        <!-- Logged in view -->
+                        <div class="logged-in-view" id="logged-in-view" style="display: none;">
+                            <div class="profile-info">
+                                <img src="/static/assets/profile.png" alt="Profile" class="profile-dropdown-avatar"
+                                    id="profile-avatar" width="40" height="40">
+                                <div class="profile-details">
+                                    <span class="profile-name" id="profile-name">User</span>
+                                    <span class="profile-username" id="profile-username">@username</span>
+                                </div>
+                            </div>
+                            <div class="profile-dropdown-divider"></div>
+                            <a href="/auth/github/logout" class="profile-dropdown-item logout-item">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                    <polyline points="16 17 21 12 16 7" />
+                                    <line x1="21" y1="12" x2="9" y2="12" />
+                                </svg>
+                                <span>Logout</span>
+                            </a>
+                        </div>
+                        <!-- Logged out view -->
+                        <div class="logged-out-view" id="logged-out-view">
+                            <div class="profile-info">
+                                <img src="/static/assets/profile.png" alt="Profile" class="profile-dropdown-avatar"
+                                    width="40" height="40">
+                                <div class="profile-details">
+                                    <span class="profile-name">Guest</span>
+                                    <span class="profile-username">Not signed in</span>
+                                </div>
+                            </div>
+                            <div class="profile-dropdown-divider"></div>
+                            <a href="#" class="profile-dropdown-item login-item" id="dropdown-login-btn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                                    <polyline points="10 17 15 12 10 7" />
+                                    <line x1="15" y1="12" x2="3" y2="12" />
+                                </svg>
+                                <span>Sign in with GitHub</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -25,64 +819,77 @@
         <nav class="menu">
             <a href="#" class="menu-item active">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                 </svg>
                 <span>Dashboard</span>
             </a>
             <a href="#" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M9 12l2 2 4-4"/>
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9 12l2 2 4-4" />
                 </svg>
                 <span>Test Runs</span>
             </a>
             <a href="#" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/>
-                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    <path
+                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
                 <span>Failures</span>
             </a>
             <a href="#" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    <polygon
+                        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                 </svg>
                 <span>Self-Healing</span>
             </a>
             <a href="#" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
                 </svg>
                 <span>Reports</span>
             </a>
             <div class="menu-item-dropdown">
                 <a href="#" class="menu-item" id="settings-toggle">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        <line x1="9" y1="9" x2="15" y2="9"/>
-                        <line x1="9" y1="15" x2="15" y2="15"/>
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <line x1="9" y1="9" x2="15" y2="9" />
+                        <line x1="9" y1="15" x2="15" y2="15" />
                     </svg>
                     <span>Settings</span>
-                    <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"/>
+                    <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9" />
                     </svg>
                 </a>
                 <div class="dropdown-menu" id="settings-dropdown">
                     <a href="#" class="dropdown-item" id="theme-toggle">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="5"/>
-                            <line x1="12" y1="1" x2="12" y2="3"/>
-                            <line x1="12" y1="21" x2="12" y2="23"/>
-                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                            <line x1="1" y1="12" x2="3" y2="12"/>
-                            <line x1="21" y1="12" x2="23" y2="12"/>
-                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="5" />
+                            <line x1="12" y1="1" x2="12" y2="3" />
+                            <line x1="12" y1="21" x2="12" y2="23" />
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                            <line x1="1" y1="12" x2="3" y2="12" />
+                            <line x1="21" y1="12" x2="23" y2="12" />
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                         </svg>
                         <span>Switch Theme</span>
+                    </a>
+                    <a href="/auth/github/logout" class="dropdown-item logout-item" id="settings-logout-item">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                            <polyline points="16 17 21 12 16 7" />
+                            <line x1="21" y1="12" x2="9" y2="12" />
+                        </svg>
+                        <span>Logout</span>
                     </a>
                 </div>
             </div>
@@ -95,4 +902,5 @@
 
     <script src="/static/script.js"></script>
 </body>
+
 </html>

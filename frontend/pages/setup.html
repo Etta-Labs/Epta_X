@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETTA-X - Setup</title>
+    <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e0e0e0;
+            overflow-y: auto;
+            padding: 20px 0;
+        }
+
+        /* Custom Scrollbar */
+        body::-webkit-scrollbar {
+            width: 0;
+            background: transparent;
+        }
+
+        .setup-container {
+            background: #ffffff;
+            border: 1px solid #3B82F6;
+            border-radius: 16px;
+            padding: 48px;
+            max-width: 480px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(35, 91, 134, 0.15);
+            max-height: calc(100vh - 72px);
+            overflow-y: auto;
+        }
+
+        /* Custom Scrollbar for setup-container */
+        .setup-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .setup-container::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+            margin: 8px 0;
+        }
+
+        .setup-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .setup-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .logo-container {
+            margin-bottom: 32px;
+        }
+
+        .logo-img {
+            width: 80px;
+            height: 80px;
+            border-radius: 16px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1a1a1a;
+        }
+
+        .subtitle {
+            color: #888888;
+            font-size: 16px;
+            margin-bottom: 32px;
+            line-height: 1.5;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .step {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 2px solid #3B82F6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666666;
+            transition: all 0.3s ease;
+        }
+
+        .step.active {
+            background: #3B82F6;
+            border-color: #3B82F6;
+            color: #fff;
+        }
+
+        .step.completed {
+            background: #3B82F6;
+            border-color: #3B82F6;
+            color: #fff;
+        }
+
+        .step-line {
+            width: 45px;
+            height: 2px;
+            background: #3B82F6;
+            align-self: center;
+        }
+
+        .step-line.completed {
+            background: #3B82F6;
+        }
+
+        .setup-step {
+            display: none;
+        }
+
+        .setup-step.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .github-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: #3B82F6;
+            color: #fff;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .github-btn:hover {
+            background: #3B82F6;
+            box-shadow: 0 0 20px rgba(35, 84, 134, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .github-btn:active {
+            transform: translateY(0);
+        }
+
+        .github-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .user-preview {
+            background: #f8f9fa;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .user-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin-bottom: 16px;
+            border: 3px solid #3B82F6;
+        }
+
+        .user-name {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 4px;
+        }
+
+        .user-username {
+            color: #3B82F6;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .user-email {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .features-list {
+            text-align: left;
+            margin: 24px 0;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .feature-item:last-child {
+            border-bottom: none;
+        }
+
+        .feature-icon {
+            width: 36px;
+            height: 36px;
+            background: transparent;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .feature-icon svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .feature-text {
+            flex: 1;
+        }
+
+        .feature-title {
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 2px;
+        }
+
+        .feature-desc {
+            font-size: 13px;
+            color: #666666;
+        }
+
+        .success-icon {
+            width: 64px;
+            height: 64px;
+            background: rgba(35, 134, 54, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .success-icon svg {
+            width: 32px;
+            height: 32px;
+            color: #3B82F6;
+        }
+
+        .error-message {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid #ff3333;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            color: #ff3333;
+            display: none;
+        }
+
+        .loading-spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .secondary-btn {
+            background: #ffffff;
+            color: #3B82F6;
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: 2px solid #3B82F6;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            margin-top: 12px;
+            width: 100%;
+        }
+
+        .secondary-btn:hover {
+            background: #EFF6FF;
+            border-color: #2563EB;
+            color: #2563EB;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #666666;
+            margin-top: 16px;
+        }
+
+        .info-text a {
+            color: #3B82F6;
+            text-decoration: none;
+        }
+
+        .info-text a:hover {
+            text-decoration: underline;
+        }
+
+        /* Loading Screen Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #ffffff;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 60px;
+        }
+
+        .loading-logo-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .loading-logo-img {
+            width: 240px;
+            height: 240px;
+            opacity: 0;
+            animation: fadeInLogo 0.5s ease-out forwards;
+        }
+
+        .loading-progress-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .loading-bar-container {
+            width: 280px;
+            height: 6px;
+            background-color: #e5e7eb;
+            border-radius: 3px;
+            overflow: hidden;
+            opacity: 0;
+            animation: fadeInBar 0.5s ease-out 0.3s forwards;
+        }
+
+        .loading-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #3B82F6, #60a5fa);
+            border-radius: 3px;
+            animation: loadingProgress 5.5s ease-in-out forwards;
+            animation-delay: 0.5s;
+        }
+
+        .loading-status-text {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 16px;
+            opacity: 0;
+            animation: fadeInBar 0.5s ease-out 0.5s forwards;
+        }
+
+        .version-text {
+            position: absolute;
+            bottom: 24px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        @keyframes fadeInLogo {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInBar {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes loadingProgress {
+            0% {
+                width: 0%;
+            }
+
+            20% {
+                width: 25%;
+            }
+
+            50% {
+                width: 60%;
+            }
+
+            80% {
+                width: 85%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body style="padding-top: 32px;">
+    <!-- Custom Title Bar for Electron -->
+    <div id="titlebar" class="titlebar">
+        <div class="titlebar-left">
+            <div class="menu-dropdown" id="file-menu">
+                <button class="menu-btn">File</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.reload()">Reload</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.clearCache()">Clear Cache & Reset</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.quit()">Exit</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="view-menu">
+                <button class="menu-btn">View</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.zoomIn()">Zoom In</a>
+                    <a href="#" onclick="window.electronAPI?.zoomOut()">Zoom Out</a>
+                    <a href="#" onclick="window.electronAPI?.resetZoom()">Reset Zoom</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="help-menu">
+                <button class="menu-btn">Help</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.showAbout()">About ETTA-X</a>
+                </div>
+            </div>
+        </div>
+        <div class="titlebar-center">
+            <span class="titlebar-title">ETTA-X</span>
+        </div>
+        <div class="titlebar-right">
+            <button class="window-btn" onclick="window.electronAPI?.minimize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="5.5" width="8" height="1" fill="currentColor" />
+                </svg>
+            </button>
+            <button class="window-btn" onclick="window.electronAPI?.maximize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="2" width="8" height="8" stroke="currentColor" fill="none" stroke-width="1" />
+                </svg>
+            </button>
+            <button class="window-btn close-btn" onclick="window.electronAPI?.close()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+            </button>
+        </div>
+    </div>
+    <style>
+        .titlebar {
+            display: flex;
+            align-items: center;
+            height: 32px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            -webkit-app-region: drag;
+            user-select: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+        }
+
+        .titlebar-left {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            -webkit-app-region: no-drag;
+            padding-left: 8px;
+        }
+
+        .titlebar-center {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .titlebar-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            letter-spacing: 0.5px;
+        }
+
+        .titlebar-right {
+            display: flex;
+            height: 100%;
+            -webkit-app-region: no-drag;
+        }
+
+        .menu-dropdown {
+            position: relative;
+            height: 100%;
+        }
+
+        .menu-btn {
+            height: 100%;
+            padding: 0 12px;
+            background: transparent;
+            border: none;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .menu-btn:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        .menu-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 180px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+            padding: 4px 0;
+            z-index: 10000;
+        }
+
+        .menu-dropdown:hover .menu-content {
+            display: block;
+        }
+
+        .menu-content a {
+            display: block;
+            padding: 8px 16px;
+            color: #374151;
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .menu-content a:hover {
+            background-color: #f3f4f6;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: #e5e7eb;
+            margin: 4px 0;
+        }
+
+        .window-btn {
+            width: 46px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+        }
+
+        .window-btn:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        .window-btn.close-btn:hover {
+            background-color: #e81123;
+            color: white;
+        }
+    </style>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-logo-container">
+                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="loading-logo-img">
+            </div>
+            <div class="loading-progress-section">
+                <div class="loading-bar-container">
+                    <div class="loading-bar"></div>
+                </div>
+                <div class="loading-status-text" id="loading-status-text">Initializing...</div>
+            </div>
+        </div>
+        <div class="version-text">v1.0.0</div>
+    </div>
+
+    <div class="setup-container">
+        <div class="logo-container">
+            <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="logo-img">
+        </div>
+
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+            <div class="step active" id="step-1">1</div>
+            <div class="step-line" id="line-1"></div>
+            <div class="step" id="step-2">2</div>
+            <div class="step-line" id="line-2"></div>
+            <div class="step" id="step-3">3</div>
+        </div>
+
+        <div id="error-message" class="error-message"></div>
+
+        <!-- Step 1: Getting Started -->
+        <div class="setup-step active" id="setup-step-1">
+            <h1>Welcome to ETTA-X</h1>
+            <p class="subtitle">Your AI-powered test automation platform. Let's get you started in just a few steps.</p>
+
+            <div class="features-list">
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path
+                                d="M14.064 0a8.75 8.75 0 00-6.187 2.563l-.459.458c-.314.314-.616.641-.904.979H3.31a1.75 1.75 0 00-1.49.833L.11 7.607a.75.75 0 00.418 1.11l3.102.954c.037.051.079.1.124.145l2.429 2.428c.046.046.094.088.145.125l.954 3.102a.75.75 0 001.11.418l2.774-1.707a1.75 1.75 0 00.833-1.49V9.485c.338-.288.665-.59.979-.904l.458-.459A8.75 8.75 0 0016 1.936V1.75A1.75 1.75 0 0014.25 0h-.186zM10.5 5a2 2 0 114 0 2 2 0 01-4 0zm-5.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">Intelligent Test Generation</div>
+                        <div class="feature-desc">AI-powered test case generation from your codebase</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path
+                                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">GitHub Integration</div>
+                        <div class="feature-desc">Seamlessly connect with your repositories</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 0a8 8 0 100 16A8 8 0 008 0zM1.5 8a6.5 6.5 0 1113 0 6.5 6.5 0 01-13 0z" />
+                            <path
+                                d="M8 3.5a.5.5 0 01.5.5v4a.5.5 0 01-.252.434l-2.5 1.5a.5.5 0 01-.516-.868L7.5 7.62V4a.5.5 0 01.5-.5z" />
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">Quick Setup</div>
+                        <div class="feature-desc">Get started in under a minute</div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="github-btn" onclick="showStep(2)">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="20" height="20">
+                    <path
+                        d="M1.5 8a6.5 6.5 0 1113 0 6.5 6.5 0 01-13 0zM8 0a8 8 0 100 16A8 8 0 008 0zm.5 4.5a.5.5 0 00-1 0v3.793L5.854 9.854a.5.5 0 10.708.708l2-2A.5.5 0 008.5 8V4.5z" />
+                </svg>
+                Let's Get Started
+            </button>
+        </div>
+
+        <!-- Step 2: Explore Features -->
+        <div class="setup-step" id="setup-step-2">
+            <h1>Explore ETTA-X</h1>
+            <p class="subtitle">Here's what you can do with ETTA-X. More features coming soon!</p>
+
+            <div class="features-list">
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 32 32" fill="none">
+                            <rect x="2" y="6" width="28" height="22" rx="3" fill="#3B82F6"/>
+                            <path d="M2 11h28V9a3 3 0 00-3-3H12l-2-2H5a3 3 0 00-3 3v4z" fill="#2563EB"/>
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">Repository Management</div>
+                        <div class="feature-desc">Browse and select repositories for testing</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 32 32" fill="none">
+                            <path d="M16 2l4.5 9.2 10.1 1.5-7.3 7.1 1.7 10.1L16 25l-9 4.9 1.7-10.1-7.3-7.1 10.1-1.5L16 2z" fill="#3B82F6"/>
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">AI Test Generation</div>
+                        <div class="feature-desc">Generate comprehensive test cases automatically</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 32 32" fill="none">
+                            <rect x="4" y="18" width="6" height="10" rx="1" fill="#9CA3AF"/>
+                            <rect x="13" y="12" width="6" height="16" rx="1" fill="#9CA3AF"/>
+                            <rect x="22" y="4" width="6" height="24" rx="1" fill="#9CA3AF"/>
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">Test Analytics</div>
+                        <div class="feature-desc">Coming soon - Track test coverage and results</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 32 32" fill="none">
+                            <rect x="3" y="3" width="11" height="11" rx="2" fill="#9CA3AF"/>
+                            <rect x="18" y="3" width="11" height="11" rx="2" fill="#9CA3AF"/>
+                            <rect x="3" y="18" width="11" height="11" rx="2" fill="#9CA3AF"/>
+                            <rect x="18" y="18" width="11" height="11" rx="2" fill="#9CA3AF"/>
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">CI/CD Integration</div>
+                        <div class="feature-desc">Coming soon - Integrate with your pipelines</div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="github-btn" onclick="showStep(3)">
+                Continue
+                <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+                    <path
+                        d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z" />
+                </svg>
+            </button>
+            <button class="secondary-btn" onclick="showStep(1)">Back</button>
+        </div>
+
+        <!-- Step 3: Sign in with GitHub -->
+        <div class="setup-step" id="setup-step-3">
+            <h1>Connect Your Account</h1>
+            <p class="subtitle">Sign in with GitHub to access your repositories and start generating tests.</p>
+
+            <div class="features-list">
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path
+                                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">Secure Authentication</div>
+                        <div class="feature-desc">We only request necessary permissions</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path
+                                d="M4 0a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V2a2 2 0 00-2-2H4zm0 1h8a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" />
+                            <path d="M4 4v1h8V4H4zm0 2.5v1h8v-1H4zm0 2.5v1h5v-1H4z" />
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <div class="feature-title">Repository Access</div>
+                        <div class="feature-desc">Read access to analyze your code</div>
+                    </div>
+                </div>
+            </div>
+
+            <a href="/auth/github/login?setup=true" class="github-btn" onclick="handleGitHubLogin(event)">
+                <svg viewBox="0 0 16 16" fill="currentColor">
+                    <path
+                        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                </svg>
+                Sign in with GitHub
+            </a>
+
+            <button class="secondary-btn" onclick="showStep(2)">Back</button>
+
+            <p class="info-text">
+                By continuing, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        let userData = null;
+
+        // Loading screen functions
+        function showLoading(message = 'Loading...') {
+            const overlay = document.getElementById('loading-overlay');
+            const statusText = document.getElementById('loading-status-text');
+            statusText.textContent = message;
+            overlay.classList.add('active');
+        }
+
+        function hideLoading() {
+            const overlay = document.getElementById('loading-overlay');
+            overlay.classList.remove('active');
+        }
+
+        // Handle GitHub login button click
+        let oauthTimeout = null;
+        let oauthCompleted = false;
+
+        async function handleGitHubLogin(event) {
+            event.preventDefault();
+            showLoading('Connecting to GitHub...');
+            oauthCompleted = false;
+
+            // Check if running in Electron
+            if (window.electronAPI && window.electronAPI.openOAuth) {
+                // Get the OAuth URL from the server (to get proper CSRF state)
+                try {
+                    const response = await fetch('/auth/github/login-url?setup=true');
+                    const data = await response.json();
+
+                    if (data.url) {
+                        // Open OAuth in external browser via Electron
+                        window.electronAPI.openOAuth(data.url);
+                        showLoading('Complete sign in on your browser...');
+
+                        // Set timeout to cancel loading after 2 minutes if no response
+                        oauthTimeout = setTimeout(() => {
+                            if (!oauthCompleted) {
+                                console.log('OAuth timeout - cancelling');
+                                hideLoading();
+                                showStep(3);
+                                showError('Sign in timed out. Please try again.');
+                            }
+                        }, 120000); // 2 minutes timeout
+
+                    } else {
+                        hideLoading();
+                        showError('Failed to get OAuth URL');
+                    }
+                } catch (error) {
+                    hideLoading();
+                    showError('Failed to start authentication');
+                }
+            } else {
+                // Fallback for non-Electron (web browser)
+                setTimeout(() => {
+                    window.location.href = '/auth/github/login?setup=true';
+                }, 800);
+            }
+        }
+
+        // Cancel OAuth loading when window gains focus (user came back without completing)
+        window.addEventListener('focus', () => {
+            // Small delay to allow OAuth callback to process first
+            setTimeout(() => {
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay && loadingOverlay.classList.contains('active') && !oauthCompleted) {
+                    const statusText = document.getElementById('loading-status-text');
+                    if (statusText && statusText.textContent.includes('Complete sign in')) {
+                        console.log('Window focused - checking if OAuth was cancelled');
+                        // Give a bit more time for the callback
+                        setTimeout(() => {
+                            if (!oauthCompleted) {
+                                hideLoading();
+                                showStep(3);
+                            }
+                        }, 2000);
+                    }
+                }
+            }, 500);
+        });
+
+        // Listen for OAuth callback from Electron (via custom protocol)
+        if (window.electronAPI && window.electronAPI.onOAuthCallback) {
+            window.electronAPI.onOAuthCallback(async (data) => {
+                console.log('Received OAuth callback:', data);
+                oauthCompleted = true;
+                if (oauthTimeout) clearTimeout(oauthTimeout);
+                showLoading('Completing authentication...');
+
+                try {
+                    // Set the token via API
+                    const response = await fetch('/auth/set-token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ token: data.token }),
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        // Token set successfully - now create the user in DB
+                        showLoading('Creating your account...');
+
+                        // Create/Confirm user
+                        const createResponse = await fetch('/api/setup/create-user', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            credentials: 'include'
+                        });
+
+                        if (createResponse.ok) {
+                            // Mark setup complete (for next check)
+                            localStorage.setItem('setupComplete', 'true');
+
+                            showLoading('Setup complete! Redirecting to dashboard...');
+                            setTimeout(() => {
+                                window.location.href = '/dashboard';
+                            }, 1500);
+                        } else {
+                            hideLoading();
+                            const errorData = await createResponse.json().catch(() => ({}));
+                            console.error('Create user failed:', errorData);
+                            showError(errorData.detail || 'Failed to create account. Please try again.');
+                        }
+                    } else {
+                        hideLoading();
+                        const errorData = await response.json().catch(() => ({}));
+                        console.error('Set token failed:', errorData);
+                        showError(errorData.detail || 'Failed to complete authentication');
+                    }
+                } catch (error) {
+                    console.error('Error setting token:', error);
+                    hideLoading();
+                    showError('Authentication failed: ' + error.message);
+                }
+            });
+        }
+
+        // Check if returning from GitHub OAuth (for web browser fallback)
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/auth/github/status', { credentials: 'include' });
+                const data = await response.json();
+
+                if (data.authenticated) {
+                    // User is authenticated - redirect to dashboard
+                    showLoading('Setup complete! Redirecting to dashboard...');
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 1500);
+                } else {
+                    // Not authenticated, hide loading and show step 1 (getting started)
+                    hideLoading();
+                    showStep(1);
+                }
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                hideLoading();
+            }
+        }
+
+        function showStep(step) {
+            currentStep = step;
+
+            // Update step indicators
+            for (let i = 1; i <= 3; i++) {
+                const stepEl = document.getElementById(`step-${i}`);
+                const lineEl = document.getElementById(`line-${i}`);
+
+                stepEl.classList.remove('active', 'completed');
+                if (lineEl) lineEl.classList.remove('completed');
+
+                if (i < step) {
+                    stepEl.classList.add('completed');
+                    stepEl.innerHTML = '✓';
+                    if (lineEl) lineEl.classList.add('completed');
+                } else if (i === step) {
+                    stepEl.classList.add('active');
+                    stepEl.innerHTML = i;
+                } else {
+                    stepEl.innerHTML = i;
+                }
+            }
+
+            // Show current step content
+            document.querySelectorAll('.setup-step').forEach((el, idx) => {
+                el.classList.remove('active');
+                if (idx + 1 === step) {
+                    el.classList.add('active');
+                }
+            });
+        }
+
+        function populateUserPreview() {
+            if (!userData) return;
+
+            document.getElementById('user-avatar').src = userData.avatar_url || '/static/assets/default-avatar.png';
+            document.getElementById('user-name').textContent = userData.name || userData.login;
+            document.getElementById('user-username').textContent = '@' + userData.login;
+            document.getElementById('user-email').textContent = userData.email || 'No public email';
+        }
+
+        async function confirmSetup() {
+            const btn = document.getElementById('confirm-btn');
+            btn.innerHTML = '<div class="loading-spinner"></div>';
+            btn.disabled = true;
+            showLoading('Creating your account...');
+
+            try {
+                const response = await fetch('/api/setup/create-user', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    // Mark setup as complete in localStorage
+                    localStorage.setItem('setupComplete', 'true');
+                    localStorage.setItem('setupCompletedAt', new Date().toISOString());
+
+                    // Show success loading then redirect to dashboard
+                    showLoading('Setup complete! Starting ETTA-X...');
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 2500);
+                } else {
+                    hideLoading();
+                    const error = await response.json();
+                    showError(error.detail || 'Failed to create account');
+                    btn.innerHTML = 'Create My Account';
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                hideLoading();
+                showError('Network error. Please try again.');
+                btn.innerHTML = 'Create My Account';
+                btn.disabled = false;
+            }
+        }
+
+        async function cancelSetup() {
+            // Clear stored credentials
+            localStorage.removeItem('lastUsername');
+            localStorage.removeItem('lastAvatar');
+            localStorage.removeItem('lastName');
+
+            // First logout to clear server-side cookies
+            try {
+                await fetch('/auth/github/logout', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+            } catch (e) {
+                // Continue even if logout fails
+            }
+
+            // Check if running in Electron
+            if (window.electronAPI && window.electronAPI.openOAuth) {
+                // Get OAuth URL and open in external browser
+                try {
+                    const response = await fetch('/auth/github/login-url?setup=true&force_login=true');
+                    const data = await response.json();
+
+                    if (data.url) {
+                        window.electronAPI.openOAuth(data.url);
+                        showLoading('Complete sign in on your browser...');
+                    }
+                } catch (error) {
+                    hideLoading();
+                    showError('Failed to start authentication');
+                }
+            } else {
+                // Fallback for web browser
+                window.location.href = '/auth/github/login?setup=true&force_login=true';
+            }
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error-message');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+            setTimeout(() => {
+                errorEl.style.display = 'none';
+            }, 5000);
+        }
+
+        // Check if setup is already complete
+        async function checkIfSetupComplete() {
+            try {
+                const response = await fetch('/api/setup/status');
+                const data = await response.json();
+
+                // If setup is done and user exists, redirect to landing (which goes to dashboard)
+                if (!data.is_first_run && data.has_users) {
+                    // Check if current user is authenticated
+                    const authResponse = await fetch('/auth/github/status', { credentials: 'include' });
+                    const authData = await authResponse.json();
+
+                    if (authData.authenticated) {
+                        // Check if authenticated user exists in DB
+                        const userCheck = await fetch('/api/setup/check-user', { credentials: 'include' });
+                        const userCheckData = await userCheck.json();
+
+                        if (userCheckData.exists) {
+                            // Already set up, go to dashboard
+                            showLoading('Welcome back!');
+                            setTimeout(() => {
+                                window.location.href = '/dashboard';
+                            }, 1500);
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            } catch (error) {
+                console.error('Error checking setup status:', error);
+                return false;
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Show initial loading
+            showLoading('Initializing...');
+
+            // Check if this is a fresh setup (force clear any existing auth)
+            const urlParams = new URLSearchParams(window.location.search);
+            const isFreshSetup = urlParams.get('fresh') === 'true';
+
+            if (isFreshSetup) {
+                // Force logout to ensure fresh start
+                try {
+                    await fetch('/auth/github/logout', { credentials: 'include' });
+                    console.log('Logged out for fresh setup');
+                    // Remove the query param so refresh doesn't keep logging out
+                    window.history.replaceState({}, '', '/setup');
+                } catch (e) {
+                    // Continue even if logout fails
+                }
+                // Show loading animation then step 1
+                setTimeout(() => {
+                    hideLoading();
+                    showStep(1);
+                }, 5000);
+                return;
+            }
+
+            // First check if setup is already complete
+            const isComplete = await checkIfSetupComplete();
+            if (isComplete) return; // Will redirect
+
+            // Wait for loading animation then check auth status
+            setTimeout(() => {
+                checkAuthStatus();
+            }, 5000);
+        });
+    </script>
+</body>
+
+</html>
