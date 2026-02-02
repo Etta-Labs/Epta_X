@@ -36,6 +36,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('oauth-callback', (event, data) => callback(data));
     },
 
+    // File system operations
+    selectFolder: () => ipcRenderer.invoke('select-folder'),
+    openPath: (path) => ipcRenderer.send('open-path', path),
+
     // Platform info
     platform: process.platform,
     isElectron: true

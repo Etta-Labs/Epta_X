@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -262,6 +262,26 @@ ipcMain.on('sync-theme', (event, theme) => {
             mainWindow.setBackgroundColor(currentTheme === 'dark' ? '#1e1e1e' : '#ffffff');
         }
     }
+});
+
+// File system handlers
+ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Select Clone Location'
+    });
+    
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+    
+    return result.filePaths[0];
+});
+
+ipcMain.on('open-path', (event, folderPath) => {
+    shell.openPath(folderPath).catch(err => {
+        console.error('Failed to open path:', err);
+    });
 });
 
 // ========== Backend Management ==========

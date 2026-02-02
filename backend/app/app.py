@@ -28,6 +28,12 @@ from backend.app.database import (
 # Import GitHub API module
 from backend.api.git_repo import GitHubAPI
 
+# Import Repository Intelligence routes (Phase 1)
+from backend.api.repo_routes import router as repo_router
+
+# Import Webhook routes for auto-fetch/pull
+from backend.api.webhook_routes import router as webhook_router
+
 # Environment configuration
 ENV = os.getenv("APP_ENV", "development")  # "development" | "production"
 IS_PRODUCTION = ENV == "production"
@@ -82,6 +88,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Include Repository Intelligence router (Phase 1)
+app.include_router(repo_router)
+
+# Include Webhook router for auto-fetch/pull
+app.include_router(webhook_router)
 
 
 # Startup event to initialize database
