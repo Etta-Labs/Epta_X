@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electro
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 
 // Set app name for protocol handler (makes browser say "Open ETTA-X" not "Open Electron")
 app.setName('ETTA-X');
@@ -49,8 +50,13 @@ if (process.defaultApp) {
 }
 
 // Configuration
-const PORT = 8000;
-const APP_URL = `http://127.0.0.1:${PORT}`;
+// Set USE_REMOTE_SERVER to true for client-server architecture (connects to remote backend)
+// Set to false for standalone mode (runs backend locally)
+const USE_REMOTE_SERVER = true;
+const REMOTE_SERVER_URL = 'https://etta.gowshik.online';
+const LOCAL_PORT = 4567;
+
+const APP_URL = USE_REMOTE_SERVER ? REMOTE_SERVER_URL : `http://127.0.0.1:${LOCAL_PORT}`;
 const isDev = process.argv.includes('--dev');
 const forceSetup = process.argv.includes('--setup');
 
@@ -155,8 +161,12 @@ function createWindow() {
 
     // ONLY intercept navigation to github.com - open OAuth in external browser
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        // Only external links that aren't our backend
-        if (!url.startsWith(APP_URL) && !url.includes('127.0.0.1') && !url.includes('localhost')) {
+        // Only external links that aren't our backend (local or remote)
+        const isBackendUrl = url.startsWith(APP_URL) || 
+                            url.includes('127.0.0.1') || 
+                            url.includes('localhost') ||
+                            url.includes('etta.gowshik.online');
+        if (!isBackendUrl) {
             shell.openExternal(url);
             return { action: 'deny' };
         }
@@ -320,7 +330,7 @@ function startBackend() {
                 '-m', 'uvicorn',
                 'backend.app.app:app',
                 '--host', '127.0.0.1',
-                '--port', String(PORT),
+                '--port', String(LOCAL_PORT),
                 '--reload'
             ];
         } else {
@@ -329,7 +339,7 @@ function startBackend() {
                 '-m', 'uvicorn',
                 'backend.app.app:app',
                 '--host', '127.0.0.1',
-                '--port', String(PORT)
+                '--port', String(LOCAL_PORT)
             ];
         }
 
@@ -378,11 +388,13 @@ function startBackend() {
 function waitForBackend(maxRetries = 30, delay = 500) {
     return new Promise((resolve, reject) => {
         let retries = 0;
+        // Use https module for HTTPS URLs, http for HTTP
+        const httpModule = APP_URL.startsWith('https') ? https : http;
 
         const checkServer = () => {
             log(`Checking backend... attempt ${retries + 1}/${maxRetries}`);
 
-            const req = http.get(APP_URL + '/health', (res) => {
+            const req = httpModule.get(APP_URL + '/health', (res) => {
                 if (res.statusCode === 200) {
                     log('Backend server is ready!');
                     resolve();
@@ -391,8 +403,11 @@ function waitForBackend(maxRetries = 30, delay = 500) {
                 }
             });
 
-            req.on('error', () => retry());
-            req.setTimeout(2000, () => {
+            req.on('error', (err) => {
+                log(`Connection error: ${err.message}`);
+                retry();
+            });
+            req.setTimeout(5000, () => {
                 req.destroy();
                 retry();
             });
@@ -401,7 +416,7 @@ function waitForBackend(maxRetries = 30, delay = 500) {
         const retry = () => {
             retries++;
             if (retries >= maxRetries) {
-                reject(new Error('Backend server failed to start'));
+                reject(new Error(USE_REMOTE_SERVER ? 'Failed to connect to remote server' : 'Backend server failed to start'));
             } else {
                 setTimeout(checkServer, delay);
             }
@@ -443,15 +458,19 @@ app.whenReady().then(async () => {
         log('Cleared all session data for fresh setup');
     }
 
-    // Always start the backend (both dev and production)
-    try {
-        await startBackend();
-    } catch (error) {
-        log(`Failed to start backend: ${error}`, 'ERROR');
+    // Start backend only if using local server (not remote)
+    if (!USE_REMOTE_SERVER) {
+        try {
+            await startBackend();
+        } catch (error) {
+            log(`Failed to start backend: ${error}`, 'ERROR');
+        }
+    } else {
+        log('Using remote server - skipping local backend startup');
     }
 
     try {
-        await waitForBackend(30, 1000);
+        await waitForBackend(USE_REMOTE_SERVER ? 10 : 30, 1000);
 
         // If force setup, also call logout API to clear any server-side session
         if (forceSetup) {
@@ -468,11 +487,15 @@ app.whenReady().then(async () => {
     } catch (error) {
         log(`Backend not responding: ${error}`, 'ERROR');
         const { dialog } = require('electron');
+        const errorDetail = USE_REMOTE_SERVER 
+            ? `Unable to connect to the server at ${APP_URL}. Please check your internet connection and try again.`
+            : 'The backend server failed to start. Please check that Python and dependencies are installed correctly.';
+        
         const response = dialog.showMessageBoxSync({
             type: 'error',
             title: 'Connection Error',
-            message: 'Failed to connect to backend server.',
-            detail: 'The backend server failed to start. Please check that Python and dependencies are installed correctly.',
+            message: USE_REMOTE_SERVER ? 'Failed to connect to server.' : 'Failed to connect to backend server.',
+            detail: errorDetail,
             buttons: ['Retry', 'Quit'],
             defaultId: 0
         });

@@ -1,7 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException, Depends, status, BackgroundTasks
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -48,9 +46,9 @@ ENV = os.getenv("APP_ENV", "development")  # "development" | "production"
 IS_PRODUCTION = ENV == "production"
 
 # GitHub OAuth configuration
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
-GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "http://localhost:4567/auth/github/callback")
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 
 # Cookie configuration based on environment
 COOKIE_CONFIG = {
@@ -134,51 +132,19 @@ def _cleanup_expired_states():
     for state in expired:
         csrf_states.pop(state, None)
 
-# Mount frontend static files and config
-app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
-app.mount("/config", StaticFiles(directory="frontend/config"), name="config")
-app.mount("/pages", StaticFiles(directory="frontend/pages"), name="pages")
-app.mount("/components", StaticFiles(directory="frontend/components"), name="components")
+# NOTE: Static file serving removed - this backend is API-only
+# The Electron client handles all UI/frontend files locally
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root():
-    """Main entry point - shows loading screen which checks setup status"""
-    return FileResponse("frontend/pages/landing.html")
-
-
-@app.get("/setup", response_class=HTMLResponse)
-async def setup_page(request: Request):
-    """Serve the setup page for first-time users"""
-    # Check if setup is already complete and user is authenticated
-    token = request.cookies.get("github_token")
-    if token:
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    "https://api.github.com/user",
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                )
-                if response.status_code == 200:
-                    github_data = response.json()
-                    user = get_user_by_github_id(github_data.get('id'))
-                    if user:
-                        # User already set up, redirect to dashboard
-                        return RedirectResponse(url="/dashboard")
-        except Exception:
-            pass  # Continue to setup page on error
-    
-    return FileResponse("frontend/pages/setup.html")
-
-
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Serve the main dashboard - allows viewing but features require auth"""
-    # Always serve the dashboard, the frontend handles auth state
-    return FileResponse("frontend/pages/index.html")
+    """API root - returns API info"""
+    return {
+        "name": "ETTA-X API",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs"
+    }
 
 
 @app.get("/health")
@@ -452,10 +418,10 @@ async def github_callback(code: str = None, state: str = None, error: str = None
     try:
         print(f"OAuth callback received: code={code[:10] if code else None}..., state={state[:20] if state else None}..., error={error}")
         
-        # Handle OAuth errors (e.g., user cancelled login) - redirect back to dashboard
+        # Handle OAuth errors (e.g., user cancelled login)
         if error:
-            # User cancelled or denied access, redirect to dashboard gracefully
-            return RedirectResponse(url="/dashboard")
+            # User cancelled or denied access - redirect to Electron app with error
+            return RedirectResponse(url=f"ettax://auth?error={error}")
         
         # Parse state to get setup flag
         is_setup = False
@@ -752,7 +718,7 @@ async def get_github_user(request: Request):
 @app.get("/auth/github/logout")
 async def github_logout():
     """Logout user by securely clearing all auth cookies"""
-    response = RedirectResponse(url="/dashboard")
+    response = JSONResponse(content={"status": "logged_out", "message": "Successfully logged out"})
     
     # Clear all auth-related cookies with matching security settings
     for cookie_name in ["github_token", "github_user", "token_issued_at"]:
@@ -1763,11 +1729,6 @@ async def get_event_analysis(event_id: int, request: Request):
 
 
 # ==================== REPOSITORIES VIEW API ====================
-
-@app.get("/repo", response_class=HTMLResponse)
-async def repositories_page():
-    """Serve the repositories view page"""
-    return FileResponse("frontend/pages/repo.html")
 
 
 @app.get("/api/repositories/connected")
