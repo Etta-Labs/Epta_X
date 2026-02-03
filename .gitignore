@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+*.dist-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Logs
+*.log
+
+# Node / Electron
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.cache/
+
+# Electron build artifacts
+out/
+dist/
+release-builds/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Local config
+.env
+.env.*
+
+# Data/output
+backend/data/
+frontend/static/assest/
+frontend/static/assets/
