@@ -12,9 +12,8 @@ function getApiUrl(endpoint) {
 async function handleLogout(event) {
     if (event) event.preventDefault();
     try {
-        await fetch(getApiUrl('/auth/github/logout'), {
-            method: 'GET',
-            credentials: 'include'
+        await window.ETTA_API.authFetch(getApiUrl('/auth/github/logout'), {
+            method: 'GET'
         });
     } catch (e) {
         console.error('Logout error:', e);
@@ -77,7 +76,7 @@ function loginWithGitHub() {
     // Check if running in Electron
     if (window.electronAPI && window.electronAPI.openOAuth) {
         // Get the OAuth URL from the server and open in external browser
-        fetch(getApiUrl('/auth/github/login-url'))
+        window.ETTA_API.authFetch(getApiUrl('/auth/github/login-url'))
             .then(response => response.json())
             .then(data => {
                 if (data.url) {
@@ -135,9 +134,8 @@ async function loginWithDifferentAccount() {
 
     // First logout to clear server-side cookies
     try {
-        await fetch(getApiUrl('/auth/github/logout'), {
-            method: 'GET',
-            credentials: 'include'
+        await window.ETTA_API.authFetch(getApiUrl('/auth/github/logout'), {
+            method: 'GET'
         });
     } catch (e) {
         // Continue even if logout fails
@@ -147,7 +145,7 @@ async function loginWithDifferentAccount() {
     if (window.electronAPI && window.electronAPI.openOAuth) {
         dashboardOAuthCompleted = false;
         // Get the OAuth URL with force_login flag
-        fetch(getApiUrl('/auth/github/login-url?force_login=true'))
+        window.ETTA_API.authFetch(getApiUrl('/auth/github/login-url?force_login=true'))
             .then(response => response.json())
             .then(data => {
                 if (data.url) {
@@ -234,14 +232,12 @@ if (window.electronAPI && window.electronAPI.onOAuthCallback) {
             }
             
             // Set the token via API (for server-side cookie if needed)
-            const response = await fetch(getApiUrl('/auth/set-token'), {
+            const response = await window.ETTA_API.authFetch(getApiUrl('/auth/set-token'), {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${data.token}`
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ token: data.token }),
-                credentials: 'include'
+                body: JSON.stringify({ token: data.token })
             });
 
             if (response.ok) {
@@ -286,8 +282,10 @@ async function loadAppConfig() {
 // Load user profile from API
 async function loadUserProfile() {
     try {
-        const response = await fetch(getApiUrl('/auth/github/status'));
+        console.log('Loading user profile, token present:', !!window.ETTA_API?.getToken?.());
+        const response = await window.ETTA_API.authFetch(getApiUrl('/auth/github/status'));
         const data = await response.json();
+        console.log('Auth status response:', data);
 
         // Get settings logout item to show/hide based on auth state
         const settingsLogoutItem = document.getElementById('settings-logout-item');
@@ -318,7 +316,7 @@ async function loadUserProfile() {
 
             // Try to get full user info for avatar
             try {
-                const userResponse = await fetch(getApiUrl('/auth/github/user'));
+                const userResponse = await window.ETTA_API.authFetch(getApiUrl('/auth/github/user'));
                 if (userResponse.ok) {
                     const userData = await userResponse.json();
                     lastUserData = userData;
@@ -513,9 +511,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         try {
-            const response = await fetch(getApiUrl('/api/github/repos'), {
-                credentials: 'include'
-            });
+            const response = await window.ETTA_API.authFetch(getApiUrl('/api/github/repos'));
 
             if (!response.ok) {
                 throw new Error('Failed to fetch repositories');
@@ -562,9 +558,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             branchSelect.innerHTML = '<option value="" disabled selected>Loading...</option>';
             branchSelect.disabled = true;
 
-            const response = await fetch(getApiUrl(`/api/github/repos/${owner}/${repo}/branches`), {
-                credentials: 'include'
-            });
+            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/github/repos/${owner}/${repo}/branches`));
 
             if (!response.ok) {
                 throw new Error('Failed to fetch branches');
@@ -644,7 +638,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             // Re-check auth status in case it changed
             if (!isLoggedIn) {
                 try {
-                    const authCheck = await fetch(getApiUrl('/auth/github/status'));
+                    const authCheck = await window.ETTA_API.authFetch(getApiUrl('/auth/github/status'));
                     const authData = await authCheck.json();
                     if (authData.authenticated) {
                         isLoggedIn = true;
@@ -715,10 +709,9 @@ async function connectRepository(repo, branch) {
     localStorage.setItem('selectedBranch', branch);
 
     try {
-        const connectResponse = await fetch(getApiUrl(`/api/github/repos/${owner}/${repoName}/connect`), {
+        const connectResponse = await window.ETTA_API.authFetch(getApiUrl(`/api/github/repos/${owner}/${repoName}/connect`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
             body: JSON.stringify({ branch })
         });
 
@@ -813,10 +806,9 @@ async function confirmClone() {
 
         try {
             // Connect the repository (creates repo in DB and sets up webhook)
-            const connectResponse = await fetch(getApiUrl(`/api/github/repos/${owner}/${repoName}/connect`), {
+            const connectResponse = await window.ETTA_API.authFetch(getApiUrl(`/api/github/repos/${owner}/${repoName}/connect`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify({ branch })
             });
 

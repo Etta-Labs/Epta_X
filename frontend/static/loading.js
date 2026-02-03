@@ -30,8 +30,8 @@ function isAppStartup() {
 // Check if setup is needed (like real app first-run check)
 async function checkSetupStatus() {
     try {
-        // Check backend setup status
-        const setupResponse = await fetch(getApiUrl('/api/setup/status'), { credentials: 'include' });
+        // Check backend setup status (use authFetch for authenticated requests)
+        const setupResponse = await window.ETTA_API.authFetch(getApiUrl('/api/setup/status'));
         const setupData = await setupResponse.json();
         
         // If first run or no users, needs setup
@@ -40,8 +40,10 @@ async function checkSetupStatus() {
         }
         
         // Check if user is authenticated
-        const authResponse = await fetch(getApiUrl('/auth/github/status'), { credentials: 'include' });
+        const authResponse = await window.ETTA_API.authFetch(getApiUrl('/auth/github/status'));
         const authData = await authResponse.json();
+        
+        console.log('Auth check result:', authData);
         
         if (!authData.authenticated) {
             // Not authenticated, check if local setup was done
@@ -55,7 +57,7 @@ async function checkSetupStatus() {
         }
         
         // Check if user exists in database
-        const userCheckResponse = await fetch(getApiUrl('/api/setup/check-user'), { credentials: 'include' });
+        const userCheckResponse = await window.ETTA_API.authFetch(getApiUrl('/api/setup/check-user'));
         const userCheckData = await userCheckResponse.json();
         
         if (!userCheckData.exists) {
@@ -85,7 +87,7 @@ async function initializeLoadingScreen() {
     // Quick check for authenticated users who just navigated here
     if (!isFreshStart) {
         try {
-            const authResponse = await fetch(getApiUrl('/auth/github/status'), { credentials: 'include' });
+            const authResponse = await window.ETTA_API.authFetch(getApiUrl('/auth/github/status'));
             const authData = await authResponse.json();
             
             if (authData.authenticated) {

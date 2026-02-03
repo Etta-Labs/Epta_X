@@ -12,9 +12,8 @@ function getApiUrl(endpoint) {
 async function handleLogout(event) {
     if (event) event.preventDefault();
     try {
-        await fetch(getApiUrl('/auth/github/logout'), {
-            method: 'GET',
-            credentials: 'include'
+        await window.ETTA_API.authFetch(getApiUrl('/auth/github/logout'), {
+            method: 'GET'
         });
     } catch (e) {
         console.error('Logout error:', e);
@@ -140,9 +139,7 @@ document.addEventListener('DOMContentLoaded', function () {
         showLoading(repoList);
 
         try {
-            const response = await fetch(getApiUrl('/api/repositories/connected'), {
-                credentials: 'include'
-            });
+            const response = await window.ETTA_API.authFetch(getApiUrl('/api/repositories/connected'));
 
             if (!response.ok) {
                 if (response.status === 401) {
@@ -259,9 +256,7 @@ document.addEventListener('DOMContentLoaded', function () {
         historyList.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>Loading history...</span></div>';
         
         try {
-            const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/events?limit=10`), {
-                credentials: 'include'
-            });
+            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/events?limit=10`));
             
             if (!response.ok) throw new Error('Failed to load history');
             
@@ -328,9 +323,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clearDiffContent();
 
         try {
-            const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/analysis?event_id=${eventId}`), {
-                credentials: 'include'
-            });
+            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/analysis?event_id=${eventId}`));
 
             if (!response.ok) {
                 throw new Error('Failed to load analysis');
@@ -355,9 +348,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clearDiffContent();
 
         try {
-            const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/analysis`), {
-                credentials: 'include'
-            });
+            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/analysis`));
 
             if (!response.ok) {
                 throw new Error('Failed to load analysis');
@@ -385,9 +376,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // First, get the current latest event ID so we only notify on NEW events
         try {
-            const initResponse = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`), {
-                credentials: 'include'
-            });
+            const initResponse = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`));
             if (initResponse.ok) {
                 const initData = await initResponse.json();
                 if (initData.has_update && initData.event_id) {
@@ -407,9 +396,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             try {
-                const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`), {
-                    credentials: 'include'
-                });
+                const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`));
                 
                 if (!response.ok) return;
                 

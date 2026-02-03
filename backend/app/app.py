@@ -760,13 +760,35 @@ async def github_logout():
 
 @app.get("/auth/github/status")
 async def get_auth_status(request: Request):
-    """Check authentication status without making GitHub API call"""
+    """Check authentication status - fetches username from GitHub if not in cookies"""
     token = get_token_from_request(request)
     github_user = request.cookies.get("github_user")
     token_issued_at = request.cookies.get("token_issued_at")
     
     if not token:
         return {"authenticated": False}
+    
+    # If we have a token but no username in cookies (Electron app using Authorization header),
+    # fetch the username from GitHub API
+    if not github_user:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://api.github.com/user",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                )
+                if response.status_code == 200:
+                    user_data = response.json()
+                    github_user = user_data.get("login")
+                else:
+                    # Token is invalid
+                    return {"authenticated": False, "error": "Invalid token"}
+        except Exception as e:
+            print(f"Error fetching GitHub user: {e}")
+            return {"authenticated": False, "error": str(e)}
     
     token_age = None
     expires_in = None
