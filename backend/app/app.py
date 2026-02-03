@@ -142,6 +142,23 @@ def _cleanup_expired_states():
     for state in expired:
         csrf_states.pop(state, None)
 
+
+def get_token_from_request(request: Request) -> Optional[str]:
+    """
+    Get authentication token from request.
+    Checks both:
+    1. Authorization header (Bearer token) - for Electron file:// origin
+    2. Cookie (github_token) - for web browser requests
+    """
+    # Check Authorization header first (for Electron apps)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header[7:]  # Remove "Bearer " prefix
+    
+    # Fall back to cookie
+    return request.cookies.get("github_token")
+
+
 # NOTE: Static file serving removed - this backend is API-only
 # The Electron client handles all UI/frontend files locally
 
@@ -175,7 +192,7 @@ async def get_setup_status():
 @app.get("/api/setup/check-user")
 async def check_user_exists(request: Request):
     """Check if the authenticated GitHub user exists in the database"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         return {"exists": False, "authenticated": False}
@@ -208,7 +225,7 @@ async def check_user_exists(request: Request):
 @app.post("/api/setup/create-user")
 async def create_user_from_github(request: Request):
     """Create a new user from GitHub authentication"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         print("ERROR: No github_token cookie found")
@@ -266,7 +283,7 @@ async def create_user_from_github(request: Request):
 @app.get("/api/user/me")
 async def get_current_user(request: Request):
     """Get the current authenticated user from database"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -306,7 +323,7 @@ async def get_current_user(request: Request):
 @app.put("/api/user/settings")
 async def update_settings(request: Request):
     """Update current user settings"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -672,7 +689,7 @@ async def set_auth_token(request: Request, body: TokenRequest):
 @app.get("/auth/github/user")
 async def get_github_user(request: Request):
     """Get current GitHub user info with token lifecycle validation"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     token_issued_at = request.cookies.get("token_issued_at")
     
     if not token:
@@ -744,7 +761,7 @@ async def github_logout():
 @app.get("/auth/github/status")
 async def get_auth_status(request: Request):
     """Check authentication status without making GitHub API call"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     github_user = request.cookies.get("github_user")
     token_issued_at = request.cookies.get("token_issued_at")
     
@@ -775,7 +792,7 @@ async def get_auth_status(request: Request):
 @app.get("/api/github/repos")
 async def get_github_repos(request: Request):
     """Fetch all repositories the authenticated user has access to"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -791,7 +808,7 @@ async def get_github_repos(request: Request):
 @app.get("/api/github/repos/{owner}/{repo}/branches")
 async def get_repo_branches(owner: str, repo: str, request: Request):
     """Fetch all branches for a specific repository"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -809,7 +826,7 @@ async def get_repo_branches(owner: str, repo: str, request: Request):
 @app.get("/api/github/repos/{owner}/{repo}")
 async def get_repo_info(owner: str, repo: str, request: Request):
     """Get detailed information about a specific repository"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -829,7 +846,7 @@ async def get_repo_info(owner: str, repo: str, request: Request):
 @app.get("/api/github/scopes")
 async def get_token_scopes(request: Request):
     """Get the OAuth scopes granted to the current access token"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -845,7 +862,7 @@ async def get_token_scopes(request: Request):
 @app.get("/api/github/scopes/validate")
 async def validate_token_scopes(request: Request):
     """Validate that the token has all required scopes"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -904,7 +921,7 @@ async def setup_repository_webhook(owner: str, repo: str, request: Request):
     
     If the token lacks permissions, returns manual setup instructions.
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1059,7 +1076,7 @@ async def connect_repository(owner: str, repo: str, request: Request):
         "webhook_error": "..." (if webhook failed)
     }
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1192,7 +1209,7 @@ async def connect_repository(owner: str, repo: str, request: Request):
 @app.get("/api/github/repos/{owner}/{repo}/webhook")
 async def get_repository_webhook(owner: str, repo: str, request: Request):
     """Get the webhook configuration for a repository"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1225,7 +1242,7 @@ async def get_repository_webhook(owner: str, repo: str, request: Request):
 @app.delete("/api/github/repos/{owner}/{repo}/webhook")
 async def delete_repository_webhook(owner: str, repo: str, request: Request):
     """Delete a webhook from a repository"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1474,7 +1491,7 @@ async def get_webhook_events(
     limit: int = 50
 ):
     """Get recent webhook events, optionally filtered by repository"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1490,7 +1507,7 @@ async def get_webhook_events(
 @app.get("/api/webhook/events/pending")
 async def get_pending_webhook_events(request: Request, limit: int = 100):
     """Get unprocessed webhook events (for background processing)"""
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1576,7 +1593,7 @@ async def trigger_event_processing(event_id: int, request: Request):
     - AST analysis of changed files
     - Return analysis results
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1650,7 +1667,7 @@ async def analyze_commit_range(request: Request):
     
     Returns normalized change analysis.
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1693,7 +1710,7 @@ async def get_event_analysis(event_id: int, request: Request):
     """
     Get the analysis results for a processed webhook event.
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1747,7 +1764,7 @@ async def get_connected_repositories(request: Request):
     Get all repositories connected by the current user with webhook status.
     Returns data formatted for the Repositories View frontend.
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1819,7 +1836,7 @@ async def get_latest_event(full_name: str, request: Request):
     Get the latest webhook event ID and timestamp for polling.
     Frontend can poll this to know when to refresh.
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1882,7 +1899,7 @@ async def get_repository_analysis(full_name: str, request: Request, event_id: Op
         }
     }
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -2062,7 +2079,7 @@ async def get_repository_events(full_name: str, request: Request, limit: int = 2
     """
     Get webhook events history for a repository.
     """
-    token = request.cookies.get("github_token")
+    token = get_token_from_request(request)
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")

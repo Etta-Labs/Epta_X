@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ETTA-X - Repositories View</title>
-    <link rel="stylesheet" href="/static/stlye.css">
-    <link rel="stylesheet" href="/static/repo.css">
-    <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../static/stlye.css">
+    <link rel="stylesheet" href="../static/repo.css">
+    <link rel="icon" href="../static/assets/logo.ico" type="image/x-icon">
 </head>
 
 <body style="padding-top: 32px;">
@@ -282,7 +282,7 @@
     <header class="top-bar">
         <div class="header-left">
             <div class="logo">
-                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" width="32" height="32" id="logo-img">
+                <img src="../static/assets/logo_bg_bl.png" alt="ETTA-X Logo" width="32" height="32" id="logo-img">
                 <span>ETTA-X</span>
             </div>
             <span class="separator">|</span>
@@ -318,7 +318,7 @@
                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                 </svg>
             </button>
-            <a href="/dashboard" class="back-btn" title="Back to Dashboard">
+            <a href="index.html" class="back-btn" title="Back to Dashboard">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                 </svg>
@@ -329,7 +329,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
         <nav class="menu">
-            <a href="/dashboard" class="menu-item">
+            <a href="index.html" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                 </svg>
@@ -395,7 +395,7 @@
                         </svg>
                         <span>Switch Theme</span>
                     </a>
-                    <a href="/auth/github/logout" class="dropdown-item logout-item" id="settings-logout-item">
+                    <a href="#" onclick="handleLogout(event)" class="dropdown-item logout-item" id="settings-logout-item">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -649,8 +649,8 @@
         </section>
     </main>
 
-    <script src="/static/api-config.js"></script>
-    <script src="/static/repo.js"></script>
+    <script src="../static/api-config.js"></script>
+    <script src="../static/repo.js"></script>
 </body>
 
 </html>

@@ -6,7 +6,7 @@ function getApiUrl(endpoint) {
 // Load configuration from JSON (local file, not API)
 async function loadConfig() {
     try {
-        const response = await fetch('/config/app-config.json');
+        const response = await fetch('../config/app-config.json');
         const config = await response.json();
         return config;
     } catch (error) {
@@ -143,12 +143,12 @@ async function initializeLoadingScreen() {
         }
     }
     
-    // Redirect after loading animation (use local page paths for Electron)
+    // Redirect after loading animation (use relative paths for Electron local files)
     setTimeout(() => {
         if (setupStatus.needsSetup) {
-            window.location.href = '/pages/setup.html';
+            window.location.href = 'setup.html';
         } else {
-            window.location.href = '/pages/index.html';
+            window.location.href = 'index.html';
         }
     }, loadingDuration);
 }

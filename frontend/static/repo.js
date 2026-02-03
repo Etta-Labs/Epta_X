@@ -8,6 +8,32 @@ function getApiUrl(endpoint) {
     return window.ETTA_API ? `${window.ETTA_API.baseUrl}${endpoint}` : endpoint;
 }
 
+// Handle logout - call API and redirect to setup
+async function handleLogout(event) {
+    if (event) event.preventDefault();
+    try {
+        await fetch(getApiUrl('/auth/github/logout'), {
+            method: 'GET',
+            credentials: 'include'
+        });
+    } catch (e) {
+        console.error('Logout error:', e);
+    }
+    // Clear stored token
+    if (window.ETTA_API && window.ETTA_API.clearToken) {
+        window.ETTA_API.clearToken();
+    }
+    // Clear local storage
+    localStorage.removeItem('lastUsername');
+    localStorage.removeItem('lastAvatar');
+    localStorage.removeItem('lastName');
+    localStorage.removeItem('selectedRepo');
+    localStorage.removeItem('selectedBranch');
+    localStorage.removeItem('setupComplete');
+    // Redirect to setup page
+    window.location.href = 'setup.html';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     // ==================== STATE ====================
     let currentView = 'raw'; // 'raw' or 'logical'

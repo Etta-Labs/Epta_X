@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ETTA-X - Setup</title>
-    <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
+    <link rel="icon" href="../static/assets/logo.ico" type="image/x-icon">
     <style>
         * {
             margin: 0;
@@ -648,7 +648,7 @@
     <div class="loading-overlay" id="loading-overlay">
         <div class="loading-content">
             <div class="loading-logo-container">
-                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="loading-logo-img">
+                <img src="../static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="loading-logo-img">
             </div>
             <div class="loading-progress-section">
                 <div class="loading-bar-container">
@@ -662,7 +662,7 @@
 
     <div class="setup-container">
         <div class="logo-container">
-            <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="logo-img">
+            <img src="../static/assets/logo_bg_bl.png" alt="ETTA-X Logo" class="logo-img">
         </div>
 
         <!-- Step Indicator -->
@@ -847,7 +847,7 @@
         </div>
     </div>
 
-    <script src="/static/api-config.js"></script>
+    <script src="../static/api-config.js"></script>
     <script>
         // Get API base URL from config (set by api-config.js which loads before this)
         function getApiUrl(endpoint) {
@@ -947,11 +947,17 @@
                 showLoading('Completing authentication...');
 
                 try {
-                    // Set the token via API
+                    // Store the token locally for future API requests
+                    if (window.ETTA_API && window.ETTA_API.setToken) {
+                        window.ETTA_API.setToken(data.token);
+                    }
+                    
+                    // Set the token via API (for server-side cookie if needed)
                     const response = await fetch(getApiUrl('/auth/set-token'), {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${data.token}`
                         },
                         body: JSON.stringify({ token: data.token }),
                         credentials: 'include'
@@ -965,7 +971,8 @@
                         const createResponse = await fetch(getApiUrl('/api/setup/create-user'), {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/json'
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${data.token}`
                             },
                             credentials: 'include'
                         });
@@ -976,7 +983,7 @@
 
                             showLoading('Setup complete! Redirecting to dashboard...');
                             setTimeout(() => {
-                                window.location.href = '/dashboard';
+                                window.location.href = 'index.html';
                             }, 1500);
                         } else {
                             hideLoading();
@@ -1008,7 +1015,7 @@
                     // User is authenticated - redirect to dashboard
                     showLoading('Setup complete! Redirecting to dashboard...');
                     setTimeout(() => {
-                        window.location.href = '/dashboard';
+                        window.location.href = 'index.html';
                     }, 1500);
                 } else {
                     // Not authenticated, hide loading and show step 1 (getting started)
@@ -1056,7 +1063,7 @@
         function populateUserPreview() {
             if (!userData) return;
 
-            document.getElementById('user-avatar').src = userData.avatar_url || '/static/assets/default-avatar.png';
+            document.getElementById('user-avatar').src = userData.avatar_url || '../static/assets/default-avatar.png';
             document.getElementById('user-name').textContent = userData.name || userData.login;
             document.getElementById('user-username').textContent = '@' + userData.login;
             document.getElementById('user-email').textContent = userData.email || 'No public email';
@@ -1085,7 +1092,7 @@
                     // Show success loading then redirect to dashboard
                     showLoading('Setup complete! Starting ETTA-X...');
                     setTimeout(() => {
-                        window.location.href = '/dashboard';
+                        window.location.href = 'index.html';
                     }, 2500);
                 } else {
                     hideLoading();
@@ -1169,7 +1176,7 @@
                             // Already set up, go to dashboard
                             showLoading('Welcome back!');
                             setTimeout(() => {
-                                window.location.href = '/dashboard';
+                                window.location.href = 'index.html';
                             }, 1500);
                             return true;
                         }

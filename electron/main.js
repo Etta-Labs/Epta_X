@@ -56,7 +56,14 @@ const USE_REMOTE_SERVER = true;
 const REMOTE_SERVER_URL = 'https://etta.gowshik.online';
 const LOCAL_PORT = 4567;
 
-const APP_URL = USE_REMOTE_SERVER ? REMOTE_SERVER_URL : `http://127.0.0.1:${LOCAL_PORT}`;
+// API URL for backend calls
+const API_URL = USE_REMOTE_SERVER ? REMOTE_SERVER_URL : `http://127.0.0.1:${LOCAL_PORT}`;
+// Keep APP_URL for backwards compatibility
+const APP_URL = API_URL;
+
+// Path to local frontend pages
+const FRONTEND_PATH = path.join(__dirname, '..', 'frontend', 'pages');
+
 const isDev = process.argv.includes('--dev');
 const forceSetup = process.argv.includes('--setup');
 
@@ -173,9 +180,15 @@ function createWindow() {
         return { action: 'allow' };
     });
 
-    // Load the app - use fresh=true for setup mode to force clean state
-    const startUrl = forceSetup ? APP_URL + '/setup?fresh=true' : APP_URL + '/dashboard';
-    mainWindow.loadURL(startUrl);
+    // Load the app - use local HTML files
+    // fresh=true for setup mode to force clean state
+    let startPage;
+    if (forceSetup) {
+        startPage = path.join(FRONTEND_PATH, 'setup.html');
+    } else {
+        startPage = path.join(FRONTEND_PATH, 'landing.html');
+    }
+    mainWindow.loadFile(startPage);
 
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -194,7 +207,7 @@ async function clearAllSessionData() {
     log('Session data cleared');
 
     if (mainWindow) {
-        mainWindow.loadURL(APP_URL + '/setup');
+        mainWindow.loadFile(path.join(FRONTEND_PATH, 'setup.html'));
     }
 }
 

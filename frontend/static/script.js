@@ -8,7 +8,31 @@ function getApiUrl(endpoint) {
     return window.ETTA_API ? `${window.ETTA_API.baseUrl}${endpoint}` : endpoint;
 }
 
-
+// Handle logout - call API and redirect to setup
+async function handleLogout(event) {
+    if (event) event.preventDefault();
+    try {
+        await fetch(getApiUrl('/auth/github/logout'), {
+            method: 'GET',
+            credentials: 'include'
+        });
+    } catch (e) {
+        console.error('Logout error:', e);
+    }
+    // Clear stored token
+    if (window.ETTA_API && window.ETTA_API.clearToken) {
+        window.ETTA_API.clearToken();
+    }
+    // Clear local storage
+    localStorage.removeItem('lastUsername');
+    localStorage.removeItem('lastAvatar');
+    localStorage.removeItem('lastName');
+    localStorage.removeItem('selectedRepo');
+    localStorage.removeItem('selectedBranch');
+    localStorage.removeItem('setupComplete');
+    // Redirect to setup page
+    window.location.href = 'setup.html';
+}
 
 // Login Modal Functions
 function showLoginModal() {
@@ -64,7 +88,7 @@ function loginWithGitHub() {
                         const modalContent = modal.querySelector('.login-modal');
                         if (modalContent) {
                             modalContent.innerHTML = `
-                                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X" class="login-modal-logo">
+                                <img src="../static/assets/logo_bg_bl.png" alt="ETTA-X" class="login-modal-logo">
                                 <h2>Complete Sign In</h2>
                                 <p>Please complete the sign in on your browser.<br>This window will update automatically.</p>
                                 <div style="margin: 24px 0;">
@@ -91,8 +115,8 @@ function loginWithGitHub() {
                 console.error('Error getting OAuth URL:', error);
             });
     } else {
-        // Fallback for web browser
-        window.location.href = '/auth/github/login';
+        // Fallback for web browser - redirect to API login
+        window.location.href = getApiUrl('/auth/github/login');
     }
 }
 
@@ -135,7 +159,7 @@ async function loginWithDifferentAccount() {
                         const modalContent = modal.querySelector('.login-modal');
                         if (modalContent) {
                             modalContent.innerHTML = `
-                                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X" class="login-modal-logo">
+                                <img src="../static/assets/logo_bg_bl.png" alt="ETTA-X" class="login-modal-logo">
                                 <h2>Complete Sign In</h2>
                                 <p>Please complete the sign in on your browser.<br>This window will update automatically.</p>
                                 <div style="margin: 24px 0;">
@@ -159,8 +183,8 @@ async function loginWithDifferentAccount() {
                 console.error('Error getting OAuth URL:', error);
             });
     } else {
-        // Fallback for web browser
-        window.location.href = '/auth/github/login?force_login=true';
+        // Fallback for web browser - redirect to API login
+        window.location.href = getApiUrl('/auth/github/login?force_login=true');
     }
 }
 
@@ -204,11 +228,17 @@ if (window.electronAPI && window.electronAPI.onOAuthCallback) {
         if (dashboardOAuthTimeout) clearTimeout(dashboardOAuthTimeout);
 
         try {
-            // Set the token via API
+            // Store the token locally for future API requests
+            if (window.ETTA_API && window.ETTA_API.setToken) {
+                window.ETTA_API.setToken(data.token);
+            }
+            
+            // Set the token via API (for server-side cookie if needed)
             const response = await fetch(getApiUrl('/auth/set-token'), {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${data.token}`
                 },
                 body: JSON.stringify({ token: data.token }),
                 credentials: 'include'
@@ -244,7 +274,7 @@ function requireLogin(callback) {
 // Load configuration from JSON
 async function loadAppConfig() {
     try {
-        const response = await fetch('/config/app-config.json');
+        const response = await fetch('../config/app-config.json');
         appConfig = await response.json();
         return appConfig;
     } catch (error) {
@@ -383,9 +413,9 @@ const logoImg = document.getElementById('logo-img');
 
 function updateLogo() {
     if (document.body.classList.contains('dark-theme')) {
-        if (logoImg) logoImg.src = '/static/assets/logo_bg.png';
+        if (logoImg) logoImg.src = '../static/assets/logo_bg.png';
     } else {
-        if (logoImg) logoImg.src = '/static/assets/logo_bg_bl.png';
+        if (logoImg) logoImg.src = '../static/assets/logo_bg_bl.png';
     }
 }
 
@@ -532,7 +562,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             branchSelect.innerHTML = '<option value="" disabled selected>Loading...</option>';
             branchSelect.disabled = true;
 
-            const response = await fetch(`/api/github/repos/${owner}/${repo}/branches`, {
+            const response = await fetch(getApiUrl(`/api/github/repos/${owner}/${repo}/branches`), {
                 credentials: 'include'
             });
 
@@ -685,7 +715,7 @@ async function connectRepository(repo, branch) {
     localStorage.setItem('selectedBranch', branch);
 
     try {
-        const connectResponse = await fetch(`/api/github/repos/${owner}/${repoName}/connect`, {
+        const connectResponse = await fetch(getApiUrl(`/api/github/repos/${owner}/${repoName}/connect`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -713,7 +743,7 @@ async function connectRepository(repo, branch) {
 
         // Redirect to repositories view after short delay
         setTimeout(() => {
-            window.location.href = '/repo';
+            window.location.href = 'repo.html';
         }, 1500);
 
     } catch (error) {
@@ -783,7 +813,7 @@ async function confirmClone() {
 
         try {
             // Connect the repository (creates repo in DB and sets up webhook)
-            const connectResponse = await fetch(`/api/github/repos/${owner}/${repoName}/connect`, {
+            const connectResponse = await fetch(getApiUrl(`/api/github/repos/${owner}/${repoName}/connect`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -805,7 +835,7 @@ async function confirmClone() {
 
             // Redirect to repositories view after short delay
             setTimeout(() => {
-                window.location.href = '/repo';
+                window.location.href = 'repo.html';
             }, 1500);
 
         } catch (error) {

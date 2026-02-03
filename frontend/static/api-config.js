@@ -2,10 +2,41 @@
  * ETTA-X API Configuration
  * This module provides the API base URL for all frontend requests.
  * The frontend runs locally in Electron, but API calls go to the remote server.
+ * 
+ * Authentication: Uses localStorage token with Authorization header
+ * (cookies don't work across file:// to https:// origins)
  */
 
 // API Base URL - Configure this to point to your backend server
 const API_BASE_URL = 'https://etta.gowshik.online';
+
+// Token storage key
+const TOKEN_KEY = 'ettax_auth_token';
+
+/**
+ * Get stored auth token
+ */
+function getAuthToken() {
+    return localStorage.getItem(TOKEN_KEY);
+}
+
+/**
+ * Set auth token
+ */
+function setAuthToken(token) {
+    if (token) {
+        localStorage.setItem(TOKEN_KEY, token);
+    } else {
+        localStorage.removeItem(TOKEN_KEY);
+    }
+}
+
+/**
+ * Clear auth token (logout)
+ */
+function clearAuthToken() {
+    localStorage.removeItem(TOKEN_KEY);
+}
 
 /**
  * Make an API request to the backend server
@@ -16,16 +47,22 @@ const API_BASE_URL = 'https://etta.gowshik.online';
 async function apiRequest(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
     
-    // Default options
-    const defaultOptions = {
-        credentials: 'include',  // Include cookies for auth
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        }
+    // Build headers with auth token if available
+    const headers = {
+        'Content-Type': 'application/json',
+        ...options.headers
     };
     
-    const mergedOptions = { ...defaultOptions, ...options };
+    const token = getAuthToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const mergedOptions = { 
+        ...options,
+        headers,
+        credentials: 'include'  // Still include for cookie fallback
+    };
     
     try {
         const response = await fetch(url, mergedOptions);
@@ -67,7 +104,11 @@ window.ETTA_API = {
     request: apiRequest,
     get: apiGet,
     post: apiPost,
-    getUrl: getApiUrl
+    getUrl: getApiUrl,
+    getToken: getAuthToken,
+    setToken: setAuthToken,
+    clearToken: clearAuthToken
 };
 
 console.log('ETTA-X API configured:', API_BASE_URL);
+
