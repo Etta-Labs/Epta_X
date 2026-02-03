@@ -5,16 +5,12 @@ SQLite database initialization and user management
 
 import sqlite3
 import os
-import json
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from contextlib import contextmanager
 
 # Database configuration
 DB_PATH = os.getenv("DATABASE_PATH", "backend/data/etta_x.db")
-
-# Default clone path configuration
-DEFAULT_CLONE_PATH = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "etta-x", "repos")
 
 
 def ensure_db_directory():
@@ -119,110 +115,62 @@ def init_database():
             )
         """)
         
+        # Webhooks table - stores registered webhook configurations
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repository_id INTEGER NOT NULL,
+                github_hook_id INTEGER NOT NULL,
+                webhook_url TEXT NOT NULL,
+                secret_hash TEXT NOT NULL,
+                events TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                last_delivery_at TIMESTAMP,
+                last_delivery_status VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+                UNIQUE(repository_id, github_hook_id)
+            )
+        """)
+        
+        # Webhook events table - stores received webhook events for processing
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                webhook_id INTEGER,
+                github_delivery_id VARCHAR(255) UNIQUE,
+                event_type VARCHAR(50) NOT NULL,
+                repository_full_name VARCHAR(255) NOT NULL,
+                branch VARCHAR(255),
+                commit_sha VARCHAR(40),
+                before_sha VARCHAR(40),
+                payload TEXT NOT NULL,
+                processed BOOLEAN DEFAULT 0,
+                processed_at TIMESTAMP,
+                processing_result TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE SET NULL
+            )
+        """)
+        
+        # Create index for faster webhook event queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_webhook_events_processed 
+            ON webhook_events(processed, created_at)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_webhook_events_repo 
+            ON webhook_events(repository_full_name, branch)
+        """)
+        
         # App metadata table - stores application state
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS app_metadata (
                 key VARCHAR(255) PRIMARY KEY,
                 value TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # =========================================
-        # PHASE 1: Repository Intelligence Tables
-        # =========================================
-        
-        # Cloned repositories table - tracks locally cloned repos
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cloned_repositories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                repository_id INTEGER,
-                github_repo_id INTEGER NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                full_name VARCHAR(255) NOT NULL,
-                owner VARCHAR(255) NOT NULL,
-                local_path TEXT NOT NULL,
-                clone_url TEXT NOT NULL,
-                current_branch VARCHAR(100) DEFAULT 'main',
-                last_commit_sha VARCHAR(40),
-                clone_status VARCHAR(50) DEFAULT 'pending',
-                clone_progress INTEGER DEFAULT 0,
-                error_message TEXT,
-                cloned_at TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE SET NULL
-            )
-        """)
-        
-        # Commit snapshots table - stores commit metadata and diff summaries
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS commit_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cloned_repo_id INTEGER NOT NULL,
-                commit_sha VARCHAR(40) NOT NULL,
-                parent_sha VARCHAR(40),
-                commit_message TEXT,
-                author_name VARCHAR(255),
-                author_email VARCHAR(255),
-                committed_at TIMESTAMP,
-                total_files_changed INTEGER DEFAULT 0,
-                total_lines_added INTEGER DEFAULT 0,
-                total_lines_removed INTEGER DEFAULT 0,
-                diff_computed BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (cloned_repo_id) REFERENCES cloned_repositories(id) ON DELETE CASCADE,
-                UNIQUE(cloned_repo_id, commit_sha)
-            )
-        """)
-        
-        # File changes table - stores per-file diff information
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS file_changes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                commit_snapshot_id INTEGER NOT NULL,
-                file_path TEXT NOT NULL,
-                change_type VARCHAR(20) NOT NULL,
-                language VARCHAR(50),
-                lines_added INTEGER DEFAULT 0,
-                lines_removed INTEGER DEFAULT 0,
-                old_file_path TEXT,
-                line_changes_json TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (commit_snapshot_id) REFERENCES commit_snapshots(id) ON DELETE CASCADE
-            )
-        """)
-        
-        # Clone tasks table - for async clone operations
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS clone_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id VARCHAR(64) UNIQUE NOT NULL,
-                cloned_repo_id INTEGER,
-                status VARCHAR(50) DEFAULT 'pending',
-                progress INTEGER DEFAULT 0,
-                current_operation TEXT,
-                error_message TEXT,
-                started_at TIMESTAMP,
-                completed_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (cloned_repo_id) REFERENCES cloned_repositories(id) ON DELETE CASCADE
-            )
-        """)
-        
-        # User settings for clone path
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_clone_settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL UNIQUE,
-                clone_base_path TEXT,
-                auto_fetch_on_open BOOLEAN DEFAULT 1,
-                store_diffs_in_db BOOLEAN DEFAULT 1,
-                max_commits_to_analyze INTEGER DEFAULT 100,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """)
         
@@ -268,7 +216,7 @@ def mark_setup_complete():
 
 # User CRUD operations
 def create_user(github_data: dict) -> Optional[dict]:
-    """Create a new user from GitHub data"""    
+    """Create a new user from GitHub data"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -413,372 +361,290 @@ def user_exists() -> bool:
         return row['count'] > 0 if row else False
 
 
-# =========================================
-# PHASE 1: Repository Intelligence CRUD
-# =========================================
+# ==================== REPOSITORY CRUD ====================
 
-def get_user_clone_settings(user_id: int) -> dict:
-    """Get user's clone settings or return defaults"""
+def create_repository(user_id: int, repo_data: dict) -> Optional[dict]:
+    """Create or update a repository record"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM user_clone_settings WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        if row:
-            return dict(row)
-        return {
-            "clone_base_path": DEFAULT_CLONE_PATH,
-            "auto_fetch_on_open": True,
-            "store_diffs_in_db": True,
-            "max_commits_to_analyze": 100
-        }
-
-
-def update_user_clone_settings(user_id: int, settings: dict) -> bool:
-    """Update or create user clone settings"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO user_clone_settings (user_id, clone_base_path, auto_fetch_on_open, store_diffs_in_db, max_commits_to_analyze)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                clone_base_path = excluded.clone_base_path,
-                auto_fetch_on_open = excluded.auto_fetch_on_open,
-                store_diffs_in_db = excluded.store_diffs_in_db,
-                max_commits_to_analyze = excluded.max_commits_to_analyze,
-                updated_at = CURRENT_TIMESTAMP
-        """, (
-            user_id,
-            settings.get("clone_base_path", DEFAULT_CLONE_PATH),
-            settings.get("auto_fetch_on_open", True),
-            settings.get("store_diffs_in_db", True),
-            settings.get("max_commits_to_analyze", 100)
-        ))
-        conn.commit()
-        return True
-
-
-# Cloned Repository CRUD
-def create_cloned_repository(user_id: int, repo_data: dict) -> Optional[dict]:
-    """Create a new cloned repository record"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+        
         try:
             cursor.execute("""
-                INSERT INTO cloned_repositories (
-                    user_id, repository_id, github_repo_id, name, full_name, owner,
-                    local_path, clone_url, current_branch, clone_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO repositories (
+                    user_id, github_repo_id, name, full_name, description,
+                    url, clone_url, default_branch, is_private
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, github_repo_id) DO UPDATE SET
+                    name = excluded.name,
+                    full_name = excluded.full_name,
+                    description = excluded.description,
+                    url = excluded.url,
+                    clone_url = excluded.clone_url,
+                    default_branch = excluded.default_branch,
+                    is_private = excluded.is_private,
+                    updated_at = CURRENT_TIMESTAMP
             """, (
                 user_id,
-                repo_data.get("repository_id"),
-                repo_data["github_repo_id"],
-                repo_data["name"],
-                repo_data["full_name"],
-                repo_data["owner"],
-                repo_data["local_path"],
-                repo_data["clone_url"],
-                repo_data.get("branch", "main"),
-                "pending"
+                repo_data.get('id'),
+                repo_data.get('name'),
+                repo_data.get('full_name'),
+                repo_data.get('description'),
+                repo_data.get('html_url'),
+                repo_data.get('clone_url'),
+                repo_data.get('default_branch', 'main'),
+                1 if repo_data.get('private') else 0,
             ))
+            
             conn.commit()
-            return get_cloned_repository(cursor.lastrowid)
-        except sqlite3.IntegrityError as e:
+            
+            return get_repository_by_github_id(user_id, repo_data.get('id'))
+            
+        except Exception as e:
+            print(f"Error creating repository: {e}")
             return None
 
 
-def get_cloned_repository(repo_id: int) -> Optional[dict]:
-    """Get a cloned repository by ID"""
+def get_repository_by_github_id(user_id: int, github_repo_id: int) -> Optional[dict]:
+    """Get a repository by GitHub repo ID"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM cloned_repositories WHERE id = ?", (repo_id,))
+        cursor.execute(
+            "SELECT * FROM repositories WHERE user_id = ? AND github_repo_id = ?",
+            (user_id, github_repo_id)
+        )
         row = cursor.fetchone()
         return dict(row) if row else None
 
 
-def get_cloned_repository_by_path(local_path: str) -> Optional[dict]:
-    """Get a cloned repository by local path"""
+def get_repository_by_full_name(full_name: str) -> Optional[dict]:
+    """Get a repository by full name (owner/repo)"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM cloned_repositories WHERE local_path = ?", (local_path,))
+        cursor.execute("SELECT * FROM repositories WHERE full_name = ?", (full_name,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
 
-def get_user_cloned_repositories(user_id: int) -> List[dict]:
-    """Get all cloned repositories for a user"""
+def get_user_repositories(user_id: int) -> list:
+    """Get all repositories for a user"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT * FROM cloned_repositories 
-            WHERE user_id = ? 
-            ORDER BY updated_at DESC
-        """, (user_id,))
+        cursor.execute(
+            "SELECT * FROM repositories WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,)
+        )
         return [dict(row) for row in cursor.fetchall()]
 
 
-def update_cloned_repository_status(repo_id: int, status: str, progress: int = None, 
-                                     error: str = None, commit_sha: str = None) -> bool:
-    """Update clone status and progress"""
+# ==================== WEBHOOK CRUD ====================
+
+def create_webhook(repository_id: int, github_hook_id: int, webhook_url: str, 
+                   secret_hash: str, events: list) -> Optional[dict]:
+    """Create a webhook record"""
+    import json
+    
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        updates = ["clone_status = ?", "updated_at = CURRENT_TIMESTAMP"]
-        values = [status]
         
-        if progress is not None:
-            updates.append("clone_progress = ?")
-            values.append(progress)
-        if error is not None:
-            updates.append("error_message = ?")
-            values.append(error)
-        if commit_sha is not None:
-            updates.append("last_commit_sha = ?")
-            values.append(commit_sha)
-        if status == "completed":
-            updates.append("cloned_at = CURRENT_TIMESTAMP")
-            
-        values.append(repo_id)
-        cursor.execute(f"UPDATE cloned_repositories SET {', '.join(updates)} WHERE id = ?", values)
-        conn.commit()
-        return cursor.rowcount > 0
-
-
-def update_cloned_repository_branch(repo_id: int, branch: str, commit_sha: str = None) -> bool:
-    """Update current branch of a cloned repository"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        if commit_sha:
-            cursor.execute("""
-                UPDATE cloned_repositories 
-                SET current_branch = ?, last_commit_sha = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (branch, commit_sha, repo_id))
-        else:
-            cursor.execute("""
-                UPDATE cloned_repositories 
-                SET current_branch = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (branch, repo_id))
-        conn.commit()
-        return cursor.rowcount > 0
-
-
-def delete_cloned_repository(repo_id: int) -> bool:
-    """Delete a cloned repository record"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM cloned_repositories WHERE id = ?", (repo_id,))
-        conn.commit()
-        return cursor.rowcount > 0
-
-
-# Clone Task CRUD
-def create_clone_task(task_id: str, cloned_repo_id: int = None) -> Optional[dict]:
-    """Create a new clone task for async tracking"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO clone_tasks (task_id, cloned_repo_id, status, started_at)
-            VALUES (?, ?, 'running', CURRENT_TIMESTAMP)
-        """, (task_id, cloned_repo_id))
-        conn.commit()
-        return get_clone_task(task_id)
-
-
-def get_clone_task(task_id: str) -> Optional[dict]:
-    """Get a clone task by task ID"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clone_tasks WHERE task_id = ?", (task_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-
-def update_clone_task(task_id: str, status: str = None, progress: int = None,
-                      operation: str = None, error: str = None, 
-                      cloned_repo_id: int = None) -> bool:
-    """Update clone task progress"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        updates = []
-        values = []
-        
-        if status:
-            updates.append("status = ?")
-            values.append(status)
-            if status in ["completed", "failed"]:
-                updates.append("completed_at = CURRENT_TIMESTAMP")
-        if progress is not None:
-            updates.append("progress = ?")
-            values.append(progress)
-        if operation:
-            updates.append("current_operation = ?")
-            values.append(operation)
-        if error:
-            updates.append("error_message = ?")
-            values.append(error)
-        if cloned_repo_id:
-            updates.append("cloned_repo_id = ?")
-            values.append(cloned_repo_id)
-            
-        if not updates:
-            return False
-            
-        values.append(task_id)
-        cursor.execute(f"UPDATE clone_tasks SET {', '.join(updates)} WHERE task_id = ?", values)
-        conn.commit()
-        return cursor.rowcount > 0
-
-
-# Commit Snapshot CRUD
-def save_commit_snapshot(cloned_repo_id: int, commit_data: dict) -> Optional[dict]:
-    """Save a commit snapshot to the database"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO commit_snapshots (
-                    cloned_repo_id, commit_sha, parent_sha, commit_message,
-                    author_name, author_email, committed_at,
-                    total_files_changed, total_lines_added, total_lines_removed, diff_computed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(cloned_repo_id, commit_sha) DO UPDATE SET
-                    total_files_changed = excluded.total_files_changed,
-                    total_lines_added = excluded.total_lines_added,
-                    total_lines_removed = excluded.total_lines_removed,
-                    diff_computed = excluded.diff_computed
+                INSERT INTO webhooks (
+                    repository_id, github_hook_id, webhook_url, secret_hash, events
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(repository_id, github_hook_id) DO UPDATE SET
+                    webhook_url = excluded.webhook_url,
+                    secret_hash = excluded.secret_hash,
+                    events = excluded.events,
+                    is_active = 1,
+                    updated_at = CURRENT_TIMESTAMP
             """, (
-                cloned_repo_id,
-                commit_data["commit_sha"],
-                commit_data.get("parent_sha"),
-                commit_data.get("message"),
-                commit_data.get("author_name"),
-                commit_data.get("author_email"),
-                commit_data.get("committed_at"),
-                commit_data.get("total_files_changed", 0),
-                commit_data.get("total_lines_added", 0),
-                commit_data.get("total_lines_removed", 0),
-                commit_data.get("diff_computed", False)
+                repository_id,
+                github_hook_id,
+                webhook_url,
+                secret_hash,
+                json.dumps(events),
             ))
+            
             conn.commit()
-            return get_commit_snapshot(cloned_repo_id, commit_data["commit_sha"])
-        except sqlite3.IntegrityError:
+            
+            return get_webhook_by_github_id(repository_id, github_hook_id)
+            
+        except Exception as e:
+            print(f"Error creating webhook: {e}")
             return None
 
 
-def get_commit_snapshot(cloned_repo_id: int, commit_sha: str) -> Optional[dict]:
-    """Get a commit snapshot by repo ID and commit SHA"""
+def get_webhook_by_github_id(repository_id: int, github_hook_id: int) -> Optional[dict]:
+    """Get a webhook by GitHub hook ID"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT * FROM commit_snapshots 
-            WHERE cloned_repo_id = ? AND commit_sha = ?
-        """, (cloned_repo_id, commit_sha))
+        cursor.execute(
+            "SELECT * FROM webhooks WHERE repository_id = ? AND github_hook_id = ?",
+            (repository_id, github_hook_id)
+        )
         row = cursor.fetchone()
         return dict(row) if row else None
 
 
-def get_commit_snapshots(cloned_repo_id: int, limit: int = 50, offset: int = 0) -> List[dict]:
-    """Get commit snapshots for a repository with pagination"""
+def get_webhook_by_repository(repository_id: int) -> Optional[dict]:
+    """Get the active webhook for a repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM webhooks WHERE repository_id = ? AND is_active = 1",
+            (repository_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_webhook_secret_hash(repository_full_name: str) -> Optional[str]:
+    """Get the webhook secret hash for a repository (for signature verification)"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM commit_snapshots 
-            WHERE cloned_repo_id = ?
-            ORDER BY committed_at DESC
-            LIMIT ? OFFSET ?
-        """, (cloned_repo_id, limit, offset))
+            SELECT w.secret_hash 
+            FROM webhooks w
+            JOIN repositories r ON w.repository_id = r.id
+            WHERE r.full_name = ? AND w.is_active = 1
+        """, (repository_full_name,))
+        row = cursor.fetchone()
+        return row['secret_hash'] if row else None
+
+
+def update_webhook_delivery(repository_id: int, github_hook_id: int, 
+                            status: str) -> bool:
+    """Update webhook last delivery info"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE webhooks 
+            SET last_delivery_at = CURRENT_TIMESTAMP,
+                last_delivery_status = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE repository_id = ? AND github_hook_id = ?
+        """, (status, repository_id, github_hook_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def deactivate_webhook(repository_id: int, github_hook_id: int) -> bool:
+    """Mark a webhook as inactive"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE webhooks 
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE repository_id = ? AND github_hook_id = ?
+        """, (repository_id, github_hook_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ==================== WEBHOOK EVENT CRUD ====================
+
+def create_webhook_event(event_data: dict) -> Optional[dict]:
+    """Create a webhook event record for processing"""
+    import json
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO webhook_events (
+                    webhook_id, github_delivery_id, event_type,
+                    repository_full_name, branch, commit_sha, before_sha, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event_data.get('webhook_id'),
+                event_data.get('delivery_id'),
+                event_data.get('event_type'),
+                event_data.get('repository_full_name'),
+                event_data.get('branch'),
+                event_data.get('commit_sha'),
+                event_data.get('before_sha'),
+                json.dumps(event_data.get('payload', {})),
+            ))
+            
+            conn.commit()
+            
+            return get_webhook_event_by_id(cursor.lastrowid)
+            
+        except Exception as e:
+            print(f"Error creating webhook event: {e}")
+            return None
+
+
+def get_webhook_event_by_id(event_id: int) -> Optional[dict]:
+    """Get a webhook event by ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_webhook_event_by_delivery_id(delivery_id: str) -> Optional[dict]:
+    """Get a webhook event by GitHub delivery ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM webhook_events WHERE github_delivery_id = ?",
+            (delivery_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_unprocessed_webhook_events(limit: int = 100) -> list:
+    """Get unprocessed webhook events for processing"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM webhook_events 
+            WHERE processed = 0 
+            ORDER BY created_at ASC 
+            LIMIT ?
+        """, (limit,))
         return [dict(row) for row in cursor.fetchall()]
 
 
-def get_commit_snapshot_by_id(snapshot_id: int) -> Optional[dict]:
-    """Get a commit snapshot by its ID"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM commit_snapshots WHERE id = ?", (snapshot_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-
-# File Changes CRUD
-def save_file_changes(commit_snapshot_id: int, files: List[dict]) -> bool:
-    """Save file changes for a commit"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        
-        # Delete existing file changes for this commit
-        cursor.execute("DELETE FROM file_changes WHERE commit_snapshot_id = ?", (commit_snapshot_id,))
-        
-        # Insert new file changes
-        for file_data in files:
-            cursor.execute("""
-                INSERT INTO file_changes (
-                    commit_snapshot_id, file_path, change_type, language,
-                    lines_added, lines_removed, old_file_path, line_changes_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                commit_snapshot_id,
-                file_data["file_path"],
-                file_data["change_type"],
-                file_data.get("language"),
-                file_data.get("lines_added", 0),
-                file_data.get("lines_removed", 0),
-                file_data.get("old_file_path"),
-                json.dumps(file_data.get("line_changes", []))
-            ))
-        
-        conn.commit()
-        return True
-
-
-def get_file_changes(commit_snapshot_id: int) -> List[dict]:
-    """Get file changes for a commit snapshot"""
+def mark_webhook_event_processed(event_id: int, result: str = None) -> bool:
+    """Mark a webhook event as processed"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM file_changes 
-            WHERE commit_snapshot_id = ?
-            ORDER BY file_path
-        """, (commit_snapshot_id,))
+            UPDATE webhook_events 
+            SET processed = 1,
+                processed_at = CURRENT_TIMESTAMP,
+                processing_result = ?
+            WHERE id = ?
+        """, (result, event_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_recent_webhook_events(repository_full_name: str = None, 
+                               limit: int = 50) -> list:
+    """Get recent webhook events, optionally filtered by repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
         
-        results = []
-        for row in cursor.fetchall():
-            file_data = dict(row)
-            # Parse JSON line changes
-            if file_data.get("line_changes_json"):
-                file_data["line_changes"] = json.loads(file_data["line_changes_json"])
-            else:
-                file_data["line_changes"] = []
-            del file_data["line_changes_json"]
-            results.append(file_data)
+        if repository_full_name:
+            cursor.execute("""
+                SELECT * FROM webhook_events 
+                WHERE repository_full_name = ?
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (repository_full_name, limit))
+        else:
+            cursor.execute("""
+                SELECT * FROM webhook_events 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (limit,))
         
-        return results
+        return [dict(row) for row in cursor.fetchall()]
 
-
-def get_full_commit_diff(cloned_repo_id: int, commit_sha: str) -> Optional[dict]:
-    """Get full commit diff with all file changes (from DB cache)"""
-    snapshot = get_commit_snapshot(cloned_repo_id, commit_sha)
-    if not snapshot:
-        return None
-    
-    files = get_file_changes(snapshot["id"])
-    
-    return {
-        "commit": {
-            "id": snapshot["commit_sha"],
-            "parent_sha": snapshot["parent_sha"],
-            "author": snapshot["author_name"],
-            "email": snapshot["author_email"],
-            "message": snapshot["commit_message"],
-            "timestamp": snapshot["committed_at"]
-        },
-        "summary": {
-            "total_files_changed": snapshot["total_files_changed"],
-            "total_lines_added": snapshot["total_lines_added"],
-            "total_lines_removed": snapshot["total_lines_removed"]
-        },
-        "files": files,
-        "cached": True
-    }
-
-
-
+# Database is initialized via app.py startup event

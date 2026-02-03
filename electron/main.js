@@ -6,6 +6,33 @@ const http = require('http');
 // Set app name for protocol handler (makes browser say "Open ETTA-X" not "Open Electron")
 app.setName('ETTA-X');
 
+// ========== Logging Helper ==========
+function log(message, type = 'INFO') {
+    const timestamp = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const formattedMessage = `[${timestamp}] [${type}] ${message}`;
+    
+    // Always print to stdout for terminal visibility
+    process.stdout.write(formattedMessage + '\n');
+    
+    // Also send to renderer if window exists
+    if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('backend-log', { type, message, timestamp });
+    }
+}
+
+function logBackend(message) {
+    const timestamp = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const formattedMessage = `[${timestamp}] [BACKEND] ${message.trim()}`;
+    
+    // Print to stdout
+    process.stdout.write(formattedMessage + '\n');
+    
+    // Send to renderer
+    if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('backend-log', { type: 'BACKEND', message: message.trim(), timestamp });
+    }
+}
+
 // Custom protocol for OAuth callback
 const PROTOCOL_NAME = 'ettax';
 const PROTOCOL_PREFIX = `${PROTOCOL_NAME}://`;
@@ -38,12 +65,12 @@ let awaitingOAuth = false;
  * Handle custom protocol URL (ettax://auth?token=xxx)
  */
 function handleProtocolUrl(url) {
-    console.log('Received protocol URL:', url);
+    log(`Received protocol URL: ${url}`);
 
     if (url.startsWith(PROTOCOL_PREFIX + 'auth')) {
         // Only process if we're actually awaiting OAuth
         if (!awaitingOAuth) {
-            console.log('Ignoring stale OAuth callback - not awaiting OAuth');
+            log('Ignoring stale OAuth callback - not awaiting OAuth');
             return;
         }
 
@@ -154,7 +181,7 @@ async function clearAllSessionData() {
         storages: ['cookies', 'localstorage', 'sessionstorage', 'cachestorage', 'indexdb']
     });
     await ses.clearCache();
-    console.log('Session data cleared');
+    log('Session data cleared');
 
     if (mainWindow) {
         mainWindow.loadURL(APP_URL + '/setup');
@@ -195,9 +222,23 @@ ipcMain.on('app-quit', () => {
     app.quit();
 });
 
+// Native confirm dialog - bypasses CSS stacking issues in frameless window
+ipcMain.handle('show-confirm-dialog', async (event, options) => {
+    const result = await dialog.showMessageBox(mainWindow, {
+        type: options.type || 'question',
+        title: options.title || 'Confirm',
+        message: options.message,
+        detail: options.detail || '',
+        buttons: options.buttons || ['OK', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+    });
+    return result.response === 0; // Returns true if first button (OK/Confirm) clicked
+});
+
 // OAuth - open GitHub auth URL in external browser
 ipcMain.on('open-oauth', (event, { url }) => {
-    console.log('Opening OAuth URL in external browser:', url);
+    log(`Opening OAuth URL in external browser: ${url}`);
     awaitingOAuth = true; // Mark that we're now waiting for OAuth callback
     shell.openExternal(url);
 });
@@ -312,8 +353,8 @@ function startBackend() {
             ];
         }
 
-        console.log('Starting backend server...');
-        console.log(`Using Python: ${pythonCmd}`);
+        log('Starting backend server...');
+        log(`Using Python: ${pythonCmd}`);
 
         // Quote the python path for Windows to handle spaces in directory names
         const spawnCmd = process.platform === 'win32' ? `"${pythonCmd}"` : pythonCmd;
@@ -327,7 +368,7 @@ function startBackend() {
 
         backendProcess.stdout.on('data', (data) => {
             const output = data.toString();
-            console.log(`Backend: ${output}`);
+            logBackend(output);
             if (output.includes('Application startup complete') || output.includes('Uvicorn running')) {
                 resolve();
             }
@@ -335,19 +376,19 @@ function startBackend() {
 
         backendProcess.stderr.on('data', (data) => {
             const output = data.toString();
-            console.log(`Backend: ${output}`);
+            logBackend(output);
             if (output.includes('Application startup complete') || output.includes('Uvicorn running')) {
                 resolve();
             }
         });
 
         backendProcess.on('error', (error) => {
-            console.error('Failed to start backend:', error);
+            log(`Failed to start backend: ${error}`, 'ERROR');
             reject(error);
         });
 
         backendProcess.on('close', (code) => {
-            console.log(`Backend process exited with code ${code}`);
+            log(`Backend process exited with code ${code}`, code === 0 ? 'INFO' : 'WARN');
         });
 
         setTimeout(resolve, 4000);
@@ -359,11 +400,11 @@ function waitForBackend(maxRetries = 30, delay = 500) {
         let retries = 0;
 
         const checkServer = () => {
-            console.log(`Checking backend... attempt ${retries + 1}/${maxRetries}`);
+            log(`Checking backend... attempt ${retries + 1}/${maxRetries}`);
 
             const req = http.get(APP_URL + '/health', (res) => {
                 if (res.statusCode === 200) {
-                    console.log('Backend server is ready!');
+                    log('Backend server is ready!');
                     resolve();
                 } else {
                     retry();
@@ -392,7 +433,7 @@ function waitForBackend(maxRetries = 30, delay = 500) {
 
 function stopBackend() {
     if (backendProcess) {
-        console.log('Stopping backend server...');
+        log('Stopping backend server...');
         if (process.platform === 'win32') {
             spawn('taskkill', ['/pid', String(backendProcess.pid), '/f', '/t'], { shell: true });
         } else {
@@ -405,10 +446,10 @@ function stopBackend() {
 // ========== App Lifecycle ==========
 
 app.whenReady().then(async () => {
-    console.log('ETTA-X is starting...');
-    console.log(`Mode: ${isDev ? 'Development' : 'Production'}`);
-    console.log(`Force Setup: ${forceSetup}`);
-    console.log(`Backend URL: ${APP_URL}`);
+    log('ETTA-X is starting...');
+    log(`Mode: ${isDev ? 'Development' : 'Production'}`);
+    log(`Force Setup: ${forceSetup}`);
+    log(`Backend URL: ${APP_URL}`);
 
     // Clear session if force setup - do this BEFORE backend starts
     if (forceSetup) {
@@ -419,14 +460,14 @@ app.whenReady().then(async () => {
         });
         await ses.clearCache();
         await ses.clearAuthCache();
-        console.log('Cleared all session data for fresh setup');
+        log('Cleared all session data for fresh setup');
     }
 
     // Always start the backend (both dev and production)
     try {
         await startBackend();
     } catch (error) {
-        console.error('Failed to start backend:', error);
+        log(`Failed to start backend: ${error}`, 'ERROR');
     }
 
     try {
@@ -436,7 +477,7 @@ app.whenReady().then(async () => {
         if (forceSetup) {
             try {
                 http.get(`${APP_URL}/auth/github/logout`, (res) => {
-                    console.log('Called logout API for fresh setup');
+                    log('Called logout API for fresh setup');
                 }).on('error', () => { });
             } catch (e) {
                 // Ignore logout errors
@@ -445,7 +486,7 @@ app.whenReady().then(async () => {
 
         createWindow();
     } catch (error) {
-        console.error('Backend not responding:', error);
+        log(`Backend not responding: ${error}`, 'ERROR');
         const { dialog } = require('electron');
         const response = dialog.showMessageBoxSync({
             type: 'error',

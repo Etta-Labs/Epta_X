@@ -1,76 +1,30 @@
 """
 Git Repository module for ETTA-X application
-Handles Git operations and GitHub API connections
-
-PHASE 1: Repository Intelligence
-- Repository cloning with progress tracking
-- Branch selection and management
-- Git diff for commits and PRs
-- Store changed files per commit
+Handles Git operations, GitHub API connections, and webhook management
 """
 
 import os
-import re
-import shutil
-from typing import Optional, List, Dict, Any, Callable
-from datetime import datetime
+import hmac
+import hashlib
+import secrets
+from typing import Optional, List, Dict, Any, Tuple
 import httpx
-from git import Repo, RemoteProgress
-from git.exc import GitCommandError, InvalidGitRepositoryError
+from git import Repo
 
 
-# Language detection based on file extension
-LANGUAGE_MAP = {
-    '.py': 'python',
-    '.js': 'javascript',
-    '.ts': 'typescript',
-    '.jsx': 'javascript',
-    '.tsx': 'typescript',
-    '.java': 'java',
-    '.c': 'c',
-    '.cpp': 'cpp',
-    '.h': 'c',
-    '.hpp': 'cpp',
-    '.cs': 'csharp',
-    '.go': 'go',
-    '.rs': 'rust',
-    '.rb': 'ruby',
-    '.php': 'php',
-    '.swift': 'swift',
-    '.kt': 'kotlin',
-    '.scala': 'scala',
-    '.r': 'r',
-    '.R': 'r',
-    '.sql': 'sql',
-    '.html': 'html',
-    '.css': 'css',
-    '.scss': 'scss',
-    '.sass': 'sass',
-    '.less': 'less',
-    '.json': 'json',
-    '.xml': 'xml',
-    '.yaml': 'yaml',
-    '.yml': 'yaml',
-    '.md': 'markdown',
-    '.sh': 'bash',
-    '.bash': 'bash',
-    '.ps1': 'powershell',
-    '.bat': 'batch',
-    '.dockerfile': 'dockerfile',
-    '.vue': 'vue',
-    '.svelte': 'svelte',
-}
+class GitHubOAuthError(Exception):
+    """Exception raised for OAuth scope/permission errors"""
+    def __init__(self, message: str, missing_scopes: List[str] = None):
+        super().__init__(message)
+        self.missing_scopes = missing_scopes or []
 
 
-def detect_language(file_path: str) -> Optional[str]:
-    """Detect programming language from file extension"""
-    _, ext = os.path.splitext(file_path.lower())
-    
-    # Handle Dockerfile specially
-    if os.path.basename(file_path).lower() == 'dockerfile':
-        return 'dockerfile'
-    
-    return LANGUAGE_MAP.get(ext)
+class WebhookError(Exception):
+    """Exception raised for webhook-related errors"""
+    def __init__(self, message: str, status_code: int = None, can_retry: bool = False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.can_retry = can_retry
 
 
 class GitHubAPI:
@@ -78,11 +32,106 @@ class GitHubAPI:
     
     BASE_URL = "https://api.github.com"
     
+    # Required OAuth scopes for full functionality
+    REQUIRED_SCOPES = {"user", "repo", "admin:repo_hook"}
+    WEBHOOK_REQUIRED_SCOPES = {"admin:repo_hook"}
+    
     def __init__(self, access_token: str):
         self.access_token = access_token
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github.v3+json",
+        }
+        self._token_scopes: Optional[List[str]] = None
+    
+    async def get_token_scopes(self) -> List[str]:
+        """
+        Fetch the OAuth scopes granted to the current access token.
+        GitHub returns scopes in the 'X-OAuth-Scopes' header.
+        
+        Returns:
+            List of scope strings (e.g., ['user', 'repo', 'admin:repo_hook'])
+        """
+        if self._token_scopes is not None:
+            return self._token_scopes
+        
+        async with httpx.AsyncClient() as client:
+            # Make a lightweight API call to get the scopes header
+            response = await client.get(
+                f"{self.BASE_URL}/user",
+                headers=self.headers
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"Failed to fetch token info: {response.status_code}")
+            
+            # GitHub returns scopes in this header
+            scopes_header = response.headers.get("X-OAuth-Scopes", "")
+            self._token_scopes = [s.strip() for s in scopes_header.split(",") if s.strip()]
+            
+            return self._token_scopes
+    
+    async def validate_scopes(self, required_scopes: set = None) -> Tuple[bool, List[str]]:
+        """
+        Validate that the token has the required OAuth scopes.
+        
+        Args:
+            required_scopes: Set of required scope names. If None, uses REQUIRED_SCOPES.
+        
+        Returns:
+            Tuple of (is_valid, missing_scopes)
+        """
+        if required_scopes is None:
+            required_scopes = self.REQUIRED_SCOPES
+        
+        token_scopes = await self.get_token_scopes()
+        token_scope_set = set(token_scopes)
+        
+        # Check for exact matches and parent scopes (e.g., 'admin:repo_hook' includes 'write:repo_hook')
+        missing = []
+        for required in required_scopes:
+            if required not in token_scope_set:
+                # Check for parent scope (GitHub scope hierarchy)
+                parent_found = False
+                if ":" in required:
+                    # e.g., for 'write:repo_hook', check if 'admin:repo_hook' exists
+                    parts = required.split(":")
+                    admin_scope = f"admin:{parts[1]}" if parts[0] in ["read", "write"] else None
+                    if admin_scope and admin_scope in token_scope_set:
+                        parent_found = True
+                
+                if not parent_found:
+                    missing.append(required)
+        
+        return len(missing) == 0, missing
+    
+    async def validate_webhook_permissions(self) -> Tuple[bool, List[str]]:
+        """
+        Validate that the token has permissions to create webhooks.
+        
+        Returns:
+            Tuple of (has_permission, missing_scopes)
+        """
+        return await self.validate_scopes(self.WEBHOOK_REQUIRED_SCOPES)
+    
+    async def get_scope_info(self) -> Dict[str, Any]:
+        """
+        Get detailed information about token scopes.
+        
+        Returns:
+            Dict with scope information and validation status
+        """
+        token_scopes = await self.get_token_scopes()
+        is_valid, missing = await self.validate_scopes()
+        has_webhook_perms, webhook_missing = await self.validate_webhook_permissions()
+        
+        return {
+            "granted_scopes": token_scopes,
+            "required_scopes": list(self.REQUIRED_SCOPES),
+            "missing_scopes": missing,
+            "is_fully_authorized": is_valid,
+            "can_create_webhooks": has_webhook_perms,
+            "webhook_missing_scopes": webhook_missing
         }
     
     async def get_user_repos(self, per_page: int = 100, page: int = 1) -> List[Dict[str, Any]]:
@@ -201,6 +250,497 @@ class GitHubAPI:
                 "created_at": repo_data["created_at"],
                 "updated_at": repo_data["updated_at"],
             }
+    
+    # ==================== WEBHOOK MANAGEMENT ====================
+    
+    async def list_webhooks(self, owner: str, repo: str) -> List[Dict[str, Any]]:
+        """
+        List all webhooks for a repository.
+        
+        Args:
+            owner: Repository owner (username or organization)
+            repo: Repository name
+        
+        Returns:
+            List of webhook configurations
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/hooks",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                raise WebhookError(f"Repository not found: {owner}/{repo}", 404)
+            
+            if response.status_code == 403:
+                raise GitHubOAuthError(
+                    "Missing permission to list webhooks. Requires 'admin:repo_hook' scope.",
+                    missing_scopes=["admin:repo_hook"]
+                )
+            
+            if response.status_code != 200:
+                raise WebhookError(f"Failed to list webhooks: {response.status_code}", response.status_code)
+            
+            return response.json()
+    
+    async def get_webhook(self, owner: str, repo: str, hook_id: int) -> Dict[str, Any]:
+        """
+        Get a specific webhook by ID.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            hook_id: Webhook ID
+        
+        Returns:
+            Webhook configuration
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/hooks/{hook_id}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                raise WebhookError(f"Webhook not found: {hook_id}", 404)
+            
+            if response.status_code != 200:
+                raise WebhookError(f"Failed to get webhook: {response.status_code}", response.status_code)
+            
+            return response.json()
+    
+    async def find_existing_webhook(self, owner: str, repo: str, webhook_url: str) -> Optional[Dict[str, Any]]:
+        """
+        Find an existing webhook by URL.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            webhook_url: The webhook URL to search for
+        
+        Returns:
+            Webhook configuration if found, None otherwise
+        """
+        try:
+            webhooks = await self.list_webhooks(owner, repo)
+            for hook in webhooks:
+                if hook.get("config", {}).get("url") == webhook_url:
+                    return hook
+            return None
+        except (WebhookError, GitHubOAuthError):
+            return None
+    
+    async def create_webhook(
+        self,
+        owner: str,
+        repo: str,
+        webhook_url: str,
+        secret: str,
+        events: List[str] = None,
+        active: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Create a new webhook for a repository.
+        Automatically checks for existing webhooks and reuses them.
+        
+        Args:
+            owner: Repository owner (username or organization)
+            repo: Repository name
+            webhook_url: Publicly reachable URL to receive webhook events
+            secret: Shared secret for signature verification
+            events: List of events to subscribe to (default: ["push", "pull_request"])
+            active: Whether the webhook is active (default: True)
+        
+        Returns:
+            Created webhook configuration
+        
+        Raises:
+            GitHubOAuthError: If token lacks admin:repo_hook scope
+            WebhookError: If webhook creation fails
+        """
+        if events is None:
+            events = ["push", "pull_request"]
+        
+        # First, validate we have the required permissions
+        has_perms, missing = await self.validate_webhook_permissions()
+        if not has_perms:
+            raise GitHubOAuthError(
+                f"Missing required OAuth scopes for webhook creation: {', '.join(missing)}. "
+                "Please re-authenticate with the required permissions.",
+                missing_scopes=missing
+            )
+        
+        # Check if webhook already exists (reuse instead of creating duplicate)
+        existing_hook = await self.find_existing_webhook(owner, repo, webhook_url)
+        if existing_hook:
+            # Update the existing webhook if needed
+            return await self.update_webhook(
+                owner, repo, existing_hook["id"],
+                webhook_url=webhook_url,
+                secret=secret,
+                events=events,
+                active=active
+            )
+        
+        # Create new webhook
+        webhook_config = {
+            "name": "web",
+            "active": active,
+            "events": events,
+            "config": {
+                "url": webhook_url,
+                "content_type": "json",
+                "secret": secret,
+                "insecure_ssl": "0"  # Always require SSL verification
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/hooks",
+                headers=self.headers,
+                json=webhook_config
+            )
+            
+            if response.status_code == 404:
+                raise WebhookError(f"Repository not found: {owner}/{repo}", 404)
+            
+            if response.status_code == 403:
+                raise GitHubOAuthError(
+                    "Missing permission to create webhooks. Requires 'admin:repo_hook' scope.",
+                    missing_scopes=["admin:repo_hook"]
+                )
+            
+            if response.status_code == 422:
+                # Validation failed - could be duplicate URL or invalid config
+                error_data = response.json()
+                errors = error_data.get("errors", [])
+                error_msg = "; ".join([e.get("message", str(e)) for e in errors])
+                raise WebhookError(f"Webhook validation failed: {error_msg}", 422)
+            
+            if response.status_code not in [200, 201]:
+                raise WebhookError(
+                    f"Failed to create webhook: {response.status_code} - {response.text}",
+                    response.status_code,
+                    can_retry=response.status_code >= 500
+                )
+            
+            return response.json()
+    
+    async def update_webhook(
+        self,
+        owner: str,
+        repo: str,
+        hook_id: int,
+        webhook_url: str = None,
+        secret: str = None,
+        events: List[str] = None,
+        active: bool = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing webhook.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            hook_id: Webhook ID to update
+            webhook_url: New webhook URL (optional)
+            secret: New secret (optional)
+            events: New events list (optional)
+            active: New active status (optional)
+        
+        Returns:
+            Updated webhook configuration
+        """
+        # Build update payload with only provided fields
+        config_updates = {}
+        if webhook_url is not None:
+            config_updates["url"] = webhook_url
+        if secret is not None:
+            config_updates["secret"] = secret
+        config_updates["content_type"] = "json"
+        
+        payload = {}
+        if config_updates:
+            payload["config"] = config_updates
+        if events is not None:
+            payload["events"] = events
+        if active is not None:
+            payload["active"] = active
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/hooks/{hook_id}",
+                headers=self.headers,
+                json=payload
+            )
+            
+            if response.status_code == 404:
+                raise WebhookError(f"Webhook not found: {hook_id}", 404)
+            
+            if response.status_code == 403:
+                raise GitHubOAuthError(
+                    "Missing permission to update webhooks. Requires 'admin:repo_hook' scope.",
+                    missing_scopes=["admin:repo_hook"]
+                )
+            
+            if response.status_code != 200:
+                raise WebhookError(f"Failed to update webhook: {response.status_code}", response.status_code)
+            
+            return response.json()
+    
+    async def delete_webhook(self, owner: str, repo: str, hook_id: int) -> bool:
+        """
+        Delete a webhook.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            hook_id: Webhook ID to delete
+        
+        Returns:
+            True if deletion was successful
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/hooks/{hook_id}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                # Already deleted, consider it a success
+                return True
+            
+            if response.status_code == 403:
+                raise GitHubOAuthError(
+                    "Missing permission to delete webhooks. Requires 'admin:repo_hook' scope.",
+                    missing_scopes=["admin:repo_hook"]
+                )
+            
+            if response.status_code != 204:
+                raise WebhookError(f"Failed to delete webhook: {response.status_code}", response.status_code)
+            
+            return True
+    
+    async def ping_webhook(self, owner: str, repo: str, hook_id: int) -> bool:
+        """
+        Trigger a ping event for a webhook to test the connection.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            hook_id: Webhook ID to ping
+        
+        Returns:
+            True if ping was sent successfully
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/hooks/{hook_id}/pings",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                raise WebhookError(f"Webhook not found: {hook_id}", 404)
+            
+            if response.status_code != 204:
+                raise WebhookError(f"Failed to ping webhook: {response.status_code}", response.status_code)
+            
+            return True
+
+
+class WebhookPayloadParser:
+    """
+    Parser for GitHub webhook payloads.
+    Extracts relevant information from push and pull_request events.
+    """
+    
+    @staticmethod
+    def parse_push_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse a push event payload.
+        
+        Args:
+            payload: Raw webhook payload
+        
+        Returns:
+            Parsed push event data
+        """
+        commits = payload.get("commits", [])
+        
+        return {
+            "event_type": "push",
+            "repository": {
+                "id": payload["repository"]["id"],
+                "name": payload["repository"]["name"],
+                "full_name": payload["repository"]["full_name"],
+                "owner": payload["repository"]["owner"]["login"],
+                "private": payload["repository"]["private"],
+                "default_branch": payload["repository"].get("default_branch"),
+                "clone_url": payload["repository"]["clone_url"],
+            },
+            "ref": payload.get("ref", ""),  # refs/heads/main
+            "branch": payload.get("ref", "").replace("refs/heads/", ""),
+            "before": payload.get("before"),  # Commit SHA before push
+            "after": payload.get("after"),    # Commit SHA after push (latest)
+            "created": payload.get("created", False),
+            "deleted": payload.get("deleted", False),
+            "forced": payload.get("forced", False),
+            "commits": [
+                {
+                    "id": c["id"],
+                    "message": c["message"],
+                    "timestamp": c["timestamp"],
+                    "author": c["author"],
+                    "added": c.get("added", []),
+                    "removed": c.get("removed", []),
+                    "modified": c.get("modified", []),
+                }
+                for c in commits
+            ],
+            "head_commit": {
+                "id": payload["head_commit"]["id"],
+                "message": payload["head_commit"]["message"],
+                "timestamp": payload["head_commit"]["timestamp"],
+            } if payload.get("head_commit") else None,
+            "pusher": payload.get("pusher", {}),
+            "sender": {
+                "id": payload["sender"]["id"],
+                "login": payload["sender"]["login"],
+            } if payload.get("sender") else None,
+        }
+    
+    @staticmethod
+    def parse_pull_request_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse a pull_request event payload.
+        
+        Args:
+            payload: Raw webhook payload
+        
+        Returns:
+            Parsed pull request event data
+        """
+        pr = payload.get("pull_request", {})
+        
+        return {
+            "event_type": "pull_request",
+            "action": payload.get("action"),  # opened, closed, synchronize, etc.
+            "repository": {
+                "id": payload["repository"]["id"],
+                "name": payload["repository"]["name"],
+                "full_name": payload["repository"]["full_name"],
+                "owner": payload["repository"]["owner"]["login"],
+                "private": payload["repository"]["private"],
+            },
+            "pull_request": {
+                "id": pr.get("id"),
+                "number": pr.get("number"),
+                "title": pr.get("title"),
+                "state": pr.get("state"),
+                "head": {
+                    "ref": pr.get("head", {}).get("ref"),  # Branch name
+                    "sha": pr.get("head", {}).get("sha"),  # Latest commit SHA
+                    "repo": pr.get("head", {}).get("repo", {}).get("full_name"),
+                },
+                "base": {
+                    "ref": pr.get("base", {}).get("ref"),  # Target branch
+                    "sha": pr.get("base", {}).get("sha"),
+                    "repo": pr.get("base", {}).get("repo", {}).get("full_name"),
+                },
+                "merged": pr.get("merged", False),
+                "mergeable": pr.get("mergeable"),
+                "draft": pr.get("draft", False),
+            },
+            "sender": {
+                "id": payload["sender"]["id"],
+                "login": payload["sender"]["login"],
+            } if payload.get("sender") else None,
+        }
+    
+    @staticmethod
+    def parse(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse a webhook payload based on event type.
+        
+        Args:
+            event_type: GitHub event type (from X-GitHub-Event header)
+            payload: Raw webhook payload
+        
+        Returns:
+            Parsed event data
+        """
+        if event_type == "push":
+            return WebhookPayloadParser.parse_push_event(payload)
+        elif event_type == "pull_request":
+            return WebhookPayloadParser.parse_pull_request_event(payload)
+        elif event_type == "ping":
+            return {
+                "event_type": "ping",
+                "zen": payload.get("zen"),
+                "hook_id": payload.get("hook_id"),
+                "repository": {
+                    "id": payload["repository"]["id"],
+                    "full_name": payload["repository"]["full_name"],
+                } if payload.get("repository") else None,
+            }
+        else:
+            return {
+                "event_type": event_type,
+                "raw_payload": payload,
+            }
+
+
+class WebhookSignatureVerifier:
+    """
+    Verifies GitHub webhook signatures using HMAC-SHA256.
+    """
+    
+    @staticmethod
+    def generate_secret() -> str:
+        """Generate a cryptographically secure webhook secret."""
+        return secrets.token_urlsafe(32)
+    
+    @staticmethod
+    def compute_signature(payload: bytes, secret: str) -> str:
+        """
+        Compute the expected HMAC-SHA256 signature for a payload.
+        
+        Args:
+            payload: Raw request body bytes
+            secret: Webhook secret
+        
+        Returns:
+            Signature string in format "sha256=<hex_digest>"
+        """
+        mac = hmac.new(
+            secret.encode('utf-8'),
+            msg=payload,
+            digestmod=hashlib.sha256
+        )
+        return f"sha256={mac.hexdigest()}"
+    
+    @staticmethod
+    def verify_signature(payload: bytes, secret: str, signature: str) -> bool:
+        """
+        Verify the GitHub webhook signature.
+        
+        Args:
+            payload: Raw request body bytes
+            secret: Webhook secret
+            signature: X-Hub-Signature-256 header value
+        
+        Returns:
+            True if signature is valid, False otherwise
+        """
+        if not signature or not signature.startswith("sha256="):
+            return False
+        
+        expected_signature = WebhookSignatureVerifier.compute_signature(payload, secret)
+        
+        # Use constant-time comparison to prevent timing attacks
+        return hmac.compare_digest(expected_signature, signature)
 
 
 class GitRepository:
@@ -254,557 +794,3 @@ class GitRepository:
             except Exception:
                 return False
         return False
-
-
-class CloneProgressHandler(RemoteProgress):
-    """Progress handler for git clone operations with callback support"""
-    
-    def __init__(self, callback: Callable[[int, str], None] = None):
-        super().__init__()
-        self.callback = callback
-        self.current_operation = "Initializing"
-        self._last_progress = 0
-    
-    def update(self, op_code, cur_count, max_count=None, message=''):
-        """Called by GitPython during clone progress"""
-        # Determine operation type
-        if op_code & self.COUNTING:
-            self.current_operation = "Counting objects"
-        elif op_code & self.COMPRESSING:
-            self.current_operation = "Compressing objects"
-        elif op_code & self.WRITING:
-            self.current_operation = "Writing objects"
-        elif op_code & self.RECEIVING:
-            self.current_operation = "Receiving objects"
-        elif op_code & self.RESOLVING:
-            self.current_operation = "Resolving deltas"
-        elif op_code & self.CHECKING_OUT:
-            self.current_operation = "Checking out files"
-        
-        # Calculate progress percentage
-        if max_count and max_count > 0:
-            progress = int((cur_count / max_count) * 100)
-        else:
-            progress = self._last_progress
-        
-        self._last_progress = progress
-        
-        # Call the callback with progress info
-        if self.callback:
-            self.callback(progress, self.current_operation)
-
-
-class RepositoryManager:
-    """
-    Advanced repository manager for ETTA-X Phase 1: Repository Intelligence
-    
-    Handles:
-    - Repository cloning with progress tracking
-    - Branch management
-    - Commit history retrieval
-    - Git diff parsing and analysis
-    - File change detection per commit
-    """
-    
-    def __init__(self, repo_path: str = None):
-        self.repo_path = repo_path
-        self.repo: Optional[Repo] = None
-        
-        if repo_path and os.path.exists(repo_path):
-            try:
-                self.repo = Repo(repo_path)
-            except InvalidGitRepositoryError:
-                self.repo = None
-    
-    @staticmethod
-    def clone_repository(
-        url: str,
-        destination: str,
-        branch: str = None,
-        progress_callback: Callable[[int, str], None] = None
-    ) -> 'RepositoryManager':
-        """
-        Clone a repository with progress tracking
-        
-        Args:
-            url: Repository URL (HTTPS or SSH)
-            destination: Local path to clone to
-            branch: Specific branch to clone (optional)
-            progress_callback: Function called with (progress_percent, operation_name)
-        
-        Returns:
-            RepositoryManager instance for the cloned repo
-        """
-        # Ensure destination directory exists
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
-        
-        # Remove existing directory if it exists
-        if os.path.exists(destination):
-            shutil.rmtree(destination)
-        
-        # Create progress handler
-        progress_handler = CloneProgressHandler(progress_callback)
-        
-        # Clone the repository
-        clone_kwargs = {
-            'url': url,
-            'to_path': destination,
-            'progress': progress_handler,
-        }
-        
-        if branch:
-            clone_kwargs['branch'] = branch
-        
-        repo = Repo.clone_from(**clone_kwargs)
-        
-        return RepositoryManager(destination)
-    
-    def get_current_branch(self) -> Optional[str]:
-        """Get the current active branch name"""
-        if not self.repo:
-            return None
-        try:
-            return self.repo.active_branch.name
-        except TypeError:
-            # Detached HEAD state
-            return None
-    
-    def get_current_commit_sha(self) -> Optional[str]:
-        """Get the current HEAD commit SHA"""
-        if not self.repo:
-            return None
-        return self.repo.head.commit.hexsha
-    
-    def get_all_branches(self, include_remote: bool = False) -> List[Dict[str, Any]]:
-        """Get all branches with metadata"""
-        if not self.repo:
-            return []
-        
-        branches = []
-        
-        # Local branches
-        for branch in self.repo.branches:
-            branches.append({
-                "name": branch.name,
-                "is_remote": False,
-                "commit_sha": branch.commit.hexsha[:7],
-                "is_current": branch.name == self.get_current_branch()
-            })
-        
-        # Remote branches
-        if include_remote:
-            for ref in self.repo.remotes.origin.refs:
-                remote_name = ref.name.replace("origin/", "")
-                if remote_name != "HEAD":
-                    branches.append({
-                        "name": remote_name,
-                        "is_remote": True,
-                        "commit_sha": ref.commit.hexsha[:7],
-                        "is_current": False
-                    })
-        
-        return branches
-    
-    def checkout_branch(self, branch_name: str, create: bool = False) -> bool:
-        """
-        Checkout to a specific branch
-        
-        Args:
-            branch_name: Name of the branch
-            create: Create branch if it doesn't exist
-        """
-        if not self.repo:
-            return False
-        
-        try:
-            if create and branch_name not in [b.name for b in self.repo.branches]:
-                self.repo.create_head(branch_name)
-            
-            self.repo.git.checkout(branch_name)
-            return True
-        except GitCommandError:
-            return False
-    
-    def fetch_all(self) -> bool:
-        """Fetch all remotes"""
-        if not self.repo:
-            return False
-        try:
-            for remote in self.repo.remotes:
-                remote.fetch()
-            return True
-        except GitCommandError:
-            return False
-    
-    def pull(self, branch: str = None) -> bool:
-        """Pull changes from remote"""
-        if not self.repo:
-            return False
-        try:
-            self.repo.remotes.origin.pull(branch or self.get_current_branch())
-            return True
-        except GitCommandError:
-            return False
-    
-    def get_commit_history(
-        self,
-        branch: str = None,
-        limit: int = 50,
-        skip: int = 0
-    ) -> List[Dict[str, Any]]:
-        """
-        Get commit history for a branch
-        
-        Args:
-            branch: Branch name (defaults to current branch)
-            limit: Maximum number of commits to return
-            skip: Number of commits to skip (for pagination)
-        
-        Returns:
-            List of commit dictionaries
-        """
-        if not self.repo:
-            return []
-        
-        try:
-            # Get commits iterator
-            commits_iter = self.repo.iter_commits(
-                branch or self.get_current_branch(),
-                max_count=limit,
-                skip=skip
-            )
-            
-            commits = []
-            for commit in commits_iter:
-                commits.append({
-                    "sha": commit.hexsha,
-                    "short_sha": commit.hexsha[:7],
-                    "message": commit.message.strip(),
-                    "author_name": commit.author.name,
-                    "author_email": commit.author.email,
-                    "committed_at": datetime.fromtimestamp(commit.committed_date).isoformat() + "Z",
-                    "parent_sha": commit.parents[0].hexsha if commit.parents else None,
-                })
-            
-            return commits
-        except Exception:
-            return []
-    
-    def get_commit_diff(self, commit_sha: str) -> Dict[str, Any]:
-        """
-        Get detailed diff information for a specific commit
-        
-        Returns the structured format:
-        {
-            "commit": { ... },
-            "summary": { total_files_changed, total_lines_added, total_lines_removed },
-            "files": [ { file_path, change_type, language, lines_added, lines_removed, line_changes } ]
-        }
-        """
-        if not self.repo:
-            return None
-        
-        try:
-            commit = self.repo.commit(commit_sha)
-            parent = commit.parents[0] if commit.parents else None
-            
-            # Get diff
-            if parent:
-                diffs = parent.diff(commit, create_patch=True)
-            else:
-                # Initial commit - diff against empty tree
-                diffs = commit.diff(None, create_patch=True)
-            
-            files = []
-            total_added = 0
-            total_removed = 0
-            
-            for diff in diffs:
-                file_info = self._parse_diff_item(diff)
-                files.append(file_info)
-                total_added += file_info["lines_added"]
-                total_removed += file_info["lines_removed"]
-            
-            return {
-                "commit": {
-                    "id": commit.hexsha,
-                    "short_sha": commit.hexsha[:7],
-                    "branch": self.get_current_branch(),
-                    "author": commit.author.name,
-                    "email": commit.author.email,
-                    "message": commit.message.strip(),
-                    "timestamp": datetime.fromtimestamp(commit.committed_date).isoformat() + "Z"
-                },
-                "summary": {
-                    "total_files_changed": len(files),
-                    "total_lines_added": total_added,
-                    "total_lines_removed": total_removed
-                },
-                "files": files,
-                "cached": False
-            }
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def _parse_diff_item(self, diff) -> Dict[str, Any]:
-        """Parse a single diff item into structured format"""
-        # Determine change type
-        if diff.new_file:
-            change_type = "added"
-            file_path = diff.b_path
-            old_path = None
-        elif diff.deleted_file:
-            change_type = "deleted"
-            file_path = diff.a_path
-            old_path = None
-        elif diff.renamed_file:
-            change_type = "renamed"
-            file_path = diff.b_path
-            old_path = diff.a_path
-        else:
-            change_type = "modified"
-            file_path = diff.b_path or diff.a_path
-            old_path = None
-        
-        # Parse the patch to get line-level changes
-        lines_added = 0
-        lines_removed = 0
-        line_changes = []
-        
-        try:
-            if diff.diff:
-                patch = diff.diff.decode('utf-8', errors='replace')
-                lines_added, lines_removed, line_changes = self._parse_patch(patch)
-        except Exception:
-            pass
-        
-        return {
-            "file_path": file_path,
-            "old_file_path": old_path,
-            "change_type": change_type,
-            "language": detect_language(file_path),
-            "lines_added": lines_added,
-            "lines_removed": lines_removed,
-            "line_changes": line_changes
-        }
-    
-    def _parse_patch(self, patch: str) -> tuple:
-        """
-        Parse a unified diff patch to extract line-level changes
-        
-        Returns:
-            (lines_added, lines_removed, line_changes)
-        """
-        lines_added = 0
-        lines_removed = 0
-        line_changes = []
-        
-        # Track current line numbers
-        old_line = 0
-        new_line = 0
-        
-        # Regex to match hunk headers: @@ -start,count +start,count @@
-        hunk_pattern = re.compile(r'^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@')
-        
-        for line in patch.split('\n'):
-            # Skip diff metadata lines
-            if line.startswith('diff --git') or line.startswith('index ') or \
-               line.startswith('---') or line.startswith('+++'):
-                continue
-            
-            # Parse hunk header
-            hunk_match = hunk_pattern.match(line)
-            if hunk_match:
-                old_line = int(hunk_match.group(1))
-                new_line = int(hunk_match.group(2))
-                continue
-            
-            # Parse actual changes
-            if line.startswith('+') and not line.startswith('+++'):
-                lines_added += 1
-                line_changes.append({
-                    "old_line": None,
-                    "new_line": new_line,
-                    "change_type": "added",
-                    "code": line[1:]  # Remove the + prefix
-                })
-                new_line += 1
-            elif line.startswith('-') and not line.startswith('---'):
-                lines_removed += 1
-                line_changes.append({
-                    "old_line": old_line,
-                    "new_line": None,
-                    "change_type": "removed",
-                    "code": line[1:]  # Remove the - prefix
-                })
-                old_line += 1
-            elif line.startswith(' '):
-                # Context line (unchanged)
-                old_line += 1
-                new_line += 1
-        
-        return lines_added, lines_removed, line_changes
-    
-    def get_uncommitted_changes(self) -> Dict[str, Any]:
-        """
-        Get uncommitted changes in the working directory
-        
-        Returns diff between HEAD and working directory
-        """
-        if not self.repo:
-            return None
-        
-        try:
-            # Get staged changes
-            staged_diffs = self.repo.index.diff(self.repo.head.commit, create_patch=True)
-            
-            # Get unstaged changes
-            unstaged_diffs = self.repo.index.diff(None, create_patch=True)
-            
-            # Get untracked files
-            untracked = self.repo.untracked_files
-            
-            staged_files = []
-            unstaged_files = []
-            total_added = 0
-            total_removed = 0
-            
-            for diff in staged_diffs:
-                file_info = self._parse_diff_item(diff)
-                file_info["staged"] = True
-                staged_files.append(file_info)
-                total_added += file_info["lines_added"]
-                total_removed += file_info["lines_removed"]
-            
-            for diff in unstaged_diffs:
-                file_info = self._parse_diff_item(diff)
-                file_info["staged"] = False
-                unstaged_files.append(file_info)
-                total_added += file_info["lines_added"]
-                total_removed += file_info["lines_removed"]
-            
-            return {
-                "summary": {
-                    "total_staged": len(staged_files),
-                    "total_unstaged": len(unstaged_files),
-                    "total_untracked": len(untracked),
-                    "total_lines_added": total_added,
-                    "total_lines_removed": total_removed
-                },
-                "staged_files": staged_files,
-                "unstaged_files": unstaged_files,
-                "untracked_files": [{"file_path": f, "change_type": "untracked"} for f in untracked]
-            }
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def compare_commits(self, from_sha: str, to_sha: str) -> Dict[str, Any]:
-        """
-        Compare two commits and return the diff between them
-        
-        Args:
-            from_sha: Starting commit SHA
-            to_sha: Ending commit SHA
-        
-        Returns:
-            Diff information between the two commits
-        """
-        if not self.repo:
-            return None
-        
-        try:
-            from_commit = self.repo.commit(from_sha)
-            to_commit = self.repo.commit(to_sha)
-            
-            diffs = from_commit.diff(to_commit, create_patch=True)
-            
-            files = []
-            total_added = 0
-            total_removed = 0
-            
-            for diff in diffs:
-                file_info = self._parse_diff_item(diff)
-                files.append(file_info)
-                total_added += file_info["lines_added"]
-                total_removed += file_info["lines_removed"]
-            
-            return {
-                "comparison": {
-                    "from_commit": from_sha[:7],
-                    "to_commit": to_sha[:7],
-                    "from_message": from_commit.message.strip().split('\n')[0],
-                    "to_message": to_commit.message.strip().split('\n')[0],
-                },
-                "summary": {
-                    "total_files_changed": len(files),
-                    "total_lines_added": total_added,
-                    "total_lines_removed": total_removed
-                },
-                "files": files
-            }
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_file_content(self, file_path: str, commit_sha: str = None) -> Optional[str]:
-        """
-        Get file content at a specific commit or current HEAD
-        
-        Args:
-            file_path: Path to the file relative to repo root
-            commit_sha: Commit SHA (defaults to HEAD)
-        """
-        if not self.repo:
-            return None
-        
-        try:
-            if commit_sha:
-                commit = self.repo.commit(commit_sha)
-            else:
-                commit = self.repo.head.commit
-            
-            blob = commit.tree / file_path
-            return blob.data_stream.read().decode('utf-8', errors='replace')
-        except Exception:
-            return None
-    
-    def get_file_tree(self, commit_sha: str = None, path: str = "") -> List[Dict[str, Any]]:
-        """
-        Get file tree structure at a specific commit
-        
-        Args:
-            commit_sha: Commit SHA (defaults to HEAD)
-            path: Subdirectory path to list
-        
-        Returns:
-            List of files and directories
-        """
-        if not self.repo:
-            return []
-        
-        try:
-            if commit_sha:
-                commit = self.repo.commit(commit_sha)
-            else:
-                commit = self.repo.head.commit
-            
-            tree = commit.tree
-            
-            # Navigate to subdirectory if path provided
-            if path:
-                for part in path.split('/'):
-                    if part:
-                        tree = tree / part
-            
-            items = []
-            for item in tree:
-                items.append({
-                    "name": item.name,
-                    "path": item.path,
-                    "type": "directory" if item.type == "tree" else "file",
-                    "size": item.size if item.type == "blob" else None,
-                    "language": detect_language(item.name) if item.type == "blob" else None
-                })
-            
-            return sorted(items, key=lambda x: (x["type"] != "directory", x["name"].lower()))
-        except Exception:
-            return []

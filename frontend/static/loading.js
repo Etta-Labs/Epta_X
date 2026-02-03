@@ -10,6 +10,18 @@ async function loadConfig() {
     }
 }
 
+// Check if this is a fresh app start (not just navigation)
+function isAppStartup() {
+    // Check if we came from another page in the app (session exists)
+    const hasSession = sessionStorage.getItem('ettax_session_started');
+    if (hasSession) {
+        return false; // Not a fresh start, skip loading
+    }
+    // Mark session as started
+    sessionStorage.setItem('ettax_session_started', 'true');
+    return true;
+}
+
 // Check if setup is needed (like real app first-run check)
 async function checkSetupStatus() {
     try {
@@ -62,6 +74,25 @@ async function checkSetupStatus() {
 
 // Apply theme based on config and localStorage
 async function initializeLoadingScreen() {
+    // Check if this is a fresh app startup or just navigation
+    const isFreshStart = isAppStartup();
+    
+    // Quick check for authenticated users who just navigated here
+    if (!isFreshStart) {
+        try {
+            const authResponse = await fetch('/auth/github/status');
+            const authData = await authResponse.json();
+            
+            if (authData.authenticated) {
+                // User is authenticated and this isn't startup - skip loading
+                window.location.replace('/dashboard');
+                return;
+            }
+        } catch (e) {
+            // Continue with normal flow on error
+        }
+    }
+    
     const config = await loadConfig();
     const loadingLogo = document.getElementById('loading-logo');
     const versionText = document.getElementById('version-text');
@@ -92,8 +123,8 @@ async function initializeLoadingScreen() {
         versionText.textContent = 'v' + config.app.version;
     }
     
-    // Get loading duration from config or use default
-    const loadingDuration = config?.app?.loadingDuration || 3000;
+    // Get loading duration from config or use default (shorter for non-startup)
+    const loadingDuration = isFreshStart ? (config?.app?.loadingDuration || 3000) : 500;
     
     // Check setup status
     const setupStatus = await checkSetupStatus();

@@ -590,16 +590,53 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
-    // Clone button click handler
+    // Clone button click handler - uses Electron native dialog
     if (cloneBtn) {
-        cloneBtn.addEventListener('click', function () {
-            if (!requireLogin()) return;
+        cloneBtn.addEventListener('click', async function () {
+            console.log('Clone button clicked');
+
+            // Re-check auth status in case it changed
+            if (!isLoggedIn) {
+                try {
+                    const authCheck = await fetch('/auth/github/status');
+                    const authData = await authCheck.json();
+                    if (authData.authenticated) {
+                        isLoggedIn = true;
+                    }
+                } catch (e) {
+                    console.log('Auth check failed:', e);
+                }
+            }
+
+            if (!requireLogin()) {
+                return;
+            }
 
             const repo = repoSelect?.value;
             const branch = branchSelect?.value;
 
-            if (repo && branch) {
-                showCloneModal(repo, branch);
+            if (!repo || !branch) {
+                alert('Please select both a repository and branch first');
+                return;
+            }
+
+            // Use Electron native dialog if available, otherwise use confirm()
+            let confirmed = false;
+            
+            if (window.electronAPI?.showConfirmDialog) {
+                confirmed = await window.electronAPI.showConfirmDialog({
+                    type: 'question',
+                    title: 'Connect Repository',
+                    message: `Connect ${repo}?`,
+                    detail: `This will connect the repository "${repo}" (branch: ${branch}) to ETTA-X for monitoring.\n\nA webhook will be set up to track changes.`,
+                    buttons: ['Connect', 'Cancel']
+                });
+            } else {
+                confirmed = confirm(`Connect ${repo} (${branch}) to ETTA-X?`);
+            }
+
+            if (confirmed) {
+                await connectRepository(repo, branch);
             }
         });
     }
@@ -623,16 +660,75 @@ document.addEventListener('DOMContentLoaded', async function () {
     updateCloneButton();
 });
 
-// Clone Modal Functions
+// Connect repository function - called after user confirms
+async function connectRepository(repo, branch) {
+    const [owner, repoName] = repo.split('/');
+
+    // Save selections to localStorage
+    localStorage.setItem('selectedRepo', repo);
+    localStorage.setItem('selectedBranch', branch);
+
+    try {
+        const connectResponse = await fetch(`/api/github/repos/${owner}/${repoName}/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ branch })
+        });
+
+        if (!connectResponse.ok) {
+            const errorData = await connectResponse.json();
+            throw new Error(errorData.detail || 'Failed to connect repository');
+        }
+
+        const connectData = await connectResponse.json();
+        console.log('Repository connected:', connectData);
+
+        // Show success notification with webhook status details
+        if (connectData.webhook_setup) {
+            showNotification(`Successfully connected ${repo}! Webhook configured.`, 'success');
+        } else {
+            // Show webhook error detail if available
+            const webhookMsg = connectData.webhook_error 
+                ? `Webhook setup failed: ${connectData.webhook_error}`
+                : 'Webhook needs manual setup (requires ngrok or public URL)';
+            showNotification(`Connected ${repo}. ${webhookMsg}`, 'warning');
+        }
+
+        // Redirect to repositories view after short delay
+        setTimeout(() => {
+            window.location.href = '/repo';
+        }, 1500);
+
+    } catch (error) {
+        console.error('Error connecting repository:', error);
+        showNotification(error.message || 'Failed to connect repository', 'error');
+    }
+}
+
+// Clone Modal Functions (legacy - keeping for fallback)
 function showCloneModal(repo, branch) {
+    console.log('showCloneModal called with:', repo, branch);
     const modal = document.getElementById('clone-modal');
     const repoText = document.getElementById('clone-repo-text');
     const branchText = document.getElementById('clone-branch-text');
+
+    console.log('Modal element:', modal);
+    console.log('RepoText element:', repoText);
+    console.log('BranchText element:', branchText);
 
     if (modal && repoText && branchText) {
         repoText.textContent = repo;
         branchText.textContent = branch;
         modal.classList.add('active');
+        // Force display in case CSS class isn't working
+        modal.style.display = 'flex';
+        console.log('Modal should now be visible');
+        console.log('Modal classList after adding active:', modal.classList.toString());
+        console.log('Modal computed display:', window.getComputedStyle(modal).display);
+    } else {
+        console.error('Clone modal elements not found!');
+        alert('Error: Clone modal not found. Please refresh the page.');
     }
 }
 
@@ -640,36 +736,138 @@ function closeCloneModal() {
     const modal = document.getElementById('clone-modal');
     if (modal) {
         modal.classList.remove('active');
+        modal.style.display = 'none';
     }
 }
 
-function confirmClone() {
+async function confirmClone() {
     const repoSelect = document.getElementById('repo-select');
     const branchSelect = document.getElementById('branch-select');
+    const confirmBtn = document.querySelector('.clone-modal-btn.confirm');
 
     if (repoSelect && branchSelect) {
         const repo = repoSelect.value;
         const branch = branchSelect.value;
+        const [owner, repoName] = repo.split('/');
 
         // Save selections to localStorage
         localStorage.setItem('selectedRepo', repo);
         localStorage.setItem('selectedBranch', branch);
 
-        console.log(`Cloning repository: ${repo} from branch: ${branch}`);
+        // Show loading state
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
+                    <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+                Connecting...
+            `;
+        }
 
-        // TODO: Add actual clone API call here
-        // Example:
-        // fetch('/api/clone', {
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/json' },
-        //     body: JSON.stringify({ repo, branch })
-        // });
+        try {
+            // Connect the repository (creates repo in DB and sets up webhook)
+            const connectResponse = await fetch(`/api/github/repos/${owner}/${repoName}/connect`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ branch })
+            });
 
-        closeCloneModal();
+            if (!connectResponse.ok) {
+                const errorData = await connectResponse.json();
+                throw new Error(errorData.detail || 'Failed to connect repository');
+            }
 
-        // Show success notification (you can customize this)
-        alert(`Successfully initiated clone of ${repo} from ${branch} branch!`);
+            const connectData = await connectResponse.json();
+            console.log('Repository connected:', connectData);
+
+            closeCloneModal();
+
+            // Show success notification
+            showNotification(`Successfully connected ${repo}! Webhook ${connectData.webhook_setup ? 'configured' : 'needs manual setup'}.`, 'success');
+
+            // Redirect to repositories view after short delay
+            setTimeout(() => {
+                window.location.href = '/repo';
+            }, 1500);
+
+        } catch (error) {
+            console.error('Error connecting repository:', error);
+            showNotification(error.message || 'Failed to connect repository', 'error');
+
+            // Reset button
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Confirm Clone
+                `;
+            }
+        }
     }
+}
+
+// Notification helper function
+function showNotification(message, type = 'info') {
+    // Remove existing notification
+    const existing = document.querySelector('.notification-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `notification-toast ${type}`;
+    toast.innerHTML = `
+        <span>${message}</span>
+        <button onclick="this.parentElement.remove()">&times;</button>
+    `;
+
+    // Add styles if not present
+    if (!document.querySelector('#notification-styles')) {
+        const styles = document.createElement('style');
+        styles.id = 'notification-styles';
+        styles.textContent = `
+            .notification-toast {
+                position: fixed;
+                top: 60px;
+                right: 20px;
+                padding: 12px 20px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                z-index: 10001;
+                animation: slideIn 0.3s ease;
+                font-size: 14px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+            .notification-toast.success { background: #10B981; color: white; }
+            .notification-toast.error { background: #EF4444; color: white; }
+            .notification-toast.info { background: #3B82F6; color: white; }
+            .notification-toast button {
+                background: none;
+                border: none;
+                color: inherit;
+                font-size: 18px;
+                cursor: pointer;
+                padding: 0;
+                line-height: 1;
+            }
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            .spin { animation: spin 1s linear infinite; }
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        `;
+        document.head.appendChild(styles);
+    }
+
+    document.body.appendChild(toast);
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => toast.remove(), 5000);
 }
 
 function cancelClone() {

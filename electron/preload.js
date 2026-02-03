@@ -36,9 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('oauth-callback', (event, data) => callback(data));
     },
 
-    // File system operations
-    selectFolder: () => ipcRenderer.invoke('select-folder'),
-    openPath: (path) => ipcRenderer.send('open-path', path),
+    // Native dialogs (bypasses CSS stacking issues)
+    showConfirmDialog: (options) => ipcRenderer.invoke('show-confirm-dialog', options),
 
     // Platform info
     platform: process.platform,
