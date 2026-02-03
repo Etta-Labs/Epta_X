@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('oauth-callback', (event, data) => callback(data));
     },
 
+    // Native dialogs (bypasses CSS stacking issues)
+    showConfirmDialog: (options) => ipcRenderer.invoke('show-confirm-dialog', options),
+
     // Platform info
     platform: process.platform,
     isElectron: true
