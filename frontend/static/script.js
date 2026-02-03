@@ -391,28 +391,17 @@ function syncThemeWithElectron(theme) {
     }
 }
 
-// Apply theme function
+// Apply theme function (used by header toggle and Electron menu)
 function applyTheme(theme) {
-    if (theme === 'dark') {
-        document.body.classList.add('dark-theme');
-    } else {
-        document.body.classList.remove('dark-theme');
-    }
-    updateLogo();
-    localStorage.setItem('theme', theme);
-    syncThemeWithElectron(theme);
-
-    if (appConfig) {
-        appConfig.theme = appConfig.theme || {};
-        appConfig.theme.mode = theme;
-    }
+    // Use setTheme for consistent behavior
+    setTheme(theme);
 }
 
 if (themeToggle) {
     themeToggle.addEventListener('click', function (e) {
         e.preventDefault();
         const currentTheme = document.body.classList.contains('dark-theme') ? 'light' : 'dark';
-        applyTheme(currentTheme);
+        setTheme(currentTheme);
     });
 }
 
@@ -735,6 +724,11 @@ async function loadCloneSettings() {
         if (response.ok) {
             currentCloneSettings = await response.json();
             return currentCloneSettings;
+        } else if (response.status === 401) {
+            console.warn('User not authenticated for settings');
+            showNotification('Please log in to access settings', 'error');
+        } else {
+            console.error('Failed to load settings:', response.status);
         }
     } catch (error) {
         console.error('Failed to load clone settings:', error);
@@ -754,7 +748,18 @@ function closeCloneSettings() {
 async function populateCloneSettings() {
     const settings = await loadCloneSettings();
     if (!settings) {
-        console.error('Could not load settings');
+        // Set defaults when not authenticated
+        const pathInput = document.getElementById('clone-path-input');
+        const defaultPathEl = document.getElementById('default-clone-path');
+        const autoFetchToggle = document.getElementById('auto-fetch-toggle');
+        const storeDiffsToggle = document.getElementById('store-diffs-toggle');
+        const maxCommitsInput = document.getElementById('max-commits-input');
+
+        if (pathInput) pathInput.value = '';
+        if (defaultPathEl) defaultPathEl.textContent = 'Not available (login required)';
+        if (autoFetchToggle) autoFetchToggle.checked = true;
+        if (storeDiffsToggle) storeDiffsToggle.checked = true;
+        if (maxCommitsInput) maxCommitsInput.value = 100;
         return;
     }
 
@@ -799,6 +804,8 @@ async function saveCloneSettings() {
             currentCloneSettings = result.settings;
             showNotification('Settings saved successfully!', 'success');
             closeCloneSettings();
+        } else if (response.status === 401) {
+            showNotification('Please log in to save settings', 'error');
         } else {
             showNotification('Failed to save settings', 'error');
         }
@@ -1015,8 +1022,13 @@ function setTheme(theme) {
         document.body.classList.remove('dark-theme');
     }
 
+    // Sync with Electron
+    syncThemeWithElectron(theme === 'system' ? 
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme);
+
     updateThemeSelector();
     updateLogoForTheme();
+    updateLogo(); // Also update main logo
 }
 
 function updateThemeSelector() {
@@ -1029,10 +1041,17 @@ function updateThemeSelector() {
 
 function updateLogoForTheme() {
     const isDark = document.body.classList.contains('dark-theme');
+    
+    // Update about logo
     const aboutLogo = document.getElementById('about-logo-img');
-
     if (aboutLogo) {
         aboutLogo.src = isDark ? '/static/assets/logo_bg_w.png' : '/static/assets/logo_bg_bl.png';
+    }
+    
+    // Update main logo
+    const logoImg = document.getElementById('logo-img');
+    if (logoImg) {
+        logoImg.src = isDark ? '/static/assets/logo_bg.png' : '/static/assets/logo_bg_bl.png';
     }
 }
 
@@ -1042,32 +1061,29 @@ async function saveAllSettings() {
     await saveCloneSettings();
 }
 
-// Override openCloneSettings to load webhooks when Webhooks tab is active
-const originalOpenCloneSettings = window.openCloneSettings || openCloneSettings;
-
 function openCloneSettings() {
     console.log('Opening settings modal...');
     const modal = document.getElementById('clone-settings-modal');
-    console.log('Modal element:', modal);
+    
     if (modal) {
+        // Reset to Repository tab first
+        switchSettingsTab('repository');
+        
         // Use inline style to ensure it displays
         modal.style.display = 'flex';
         modal.classList.add('active');
-        console.log('Modal opened with inline style');
+        
+        // Populate settings
         populateCloneSettings();
         updateThemeSelector();
+        updateLogoForTheme();
+        
+        console.log('Settings modal opened');
     } else {
         console.error('Settings modal not found!');
     }
 }
 
-function closeCloneSettings() {
-    const modal = document.getElementById('clone-settings-modal');
-    if (modal) {
-        modal.style.display = 'none';
-        modal.classList.remove('active');
-    }
-}
 // ============================================
 // Cloned Repositories Modal Functions
 // ============================================
@@ -1720,12 +1736,15 @@ function initializeDropdowns() {
 document.addEventListener('DOMContentLoaded', function () {
     initializeDropdowns();
 
-    // Apply saved theme on load
+    // Apply saved theme on load using unified function
     const savedTheme = localStorage.getItem('theme') || 'system';
-    if (savedTheme === 'dark') {
-        document.body.classList.add('dark-theme');
-    } else if (savedTheme === 'system') {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.body.classList.toggle('dark-theme', prefersDark);
-    }
+    setTheme(savedTheme);
+    
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (localStorage.getItem('theme') === 'system') {
+            document.body.classList.toggle('dark-theme', e.matches);
+            updateLogoForTheme();
+        }
+    });
 });
