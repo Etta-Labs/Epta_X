@@ -24,11 +24,12 @@ def ensure_db_directory():
 def get_db_connection():
     """Context manager for database connections"""
     ensure_db_directory()
-    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    conn = sqlite3.connect(DB_PATH, timeout=60.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    # Enable WAL mode to prevent database locks
+    # Enable WAL mode for better concurrency and prevent database locks
     conn.execute('PRAGMA journal_mode=WAL')
-    conn.execute('PRAGMA busy_timeout=30000')
+    conn.execute('PRAGMA busy_timeout=60000')
+    conn.execute('PRAGMA synchronous=NORMAL')
     try:
         yield conn
     finally:
@@ -216,18 +217,53 @@ def mark_setup_complete():
 
 # User CRUD operations
 def create_user(github_data: dict) -> Optional[dict]:
-    """Create a new user from GitHub data"""
+    """Create a new user from GitHub data, or update if exists"""
+    github_id = github_data.get('id')
+    
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        try:
+        # First check if user already exists
+        cursor.execute("SELECT id FROM users WHERE github_id = ?", (github_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # User exists, update instead
+            cursor.execute("""
+                UPDATE users SET
+                    username = ?,
+                    email = ?,
+                    name = ?,
+                    avatar_url = ?,
+                    bio = ?,
+                    location = ?,
+                    company = ?,
+                    blog = ?,
+                    is_setup_complete = 1,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_login_at = CURRENT_TIMESTAMP
+                WHERE github_id = ?
+            """, (
+                github_data.get('login'),
+                github_data.get('email'),
+                github_data.get('name'),
+                github_data.get('avatar_url'),
+                github_data.get('bio'),
+                github_data.get('location'),
+                github_data.get('company'),
+                github_data.get('blog'),
+                github_id,
+            ))
+            conn.commit()
+        else:
+            # Create new user
             cursor.execute("""
                 INSERT INTO users (
                     github_id, username, email, name, avatar_url, 
                     bio, location, company, blog, is_setup_complete
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             """, (
-                github_data.get('id'),
+                github_id,
                 github_data.get('login'),
                 github_data.get('email'),
                 github_data.get('name'),
@@ -242,16 +278,15 @@ def create_user(github_data: dict) -> Optional[dict]:
             
             # Create default user settings
             cursor.execute("""
-                INSERT INTO user_settings (user_id) VALUES (?)
+                INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)
             """, (user_id,))
             
             conn.commit()
-            
-            return get_user_by_github_id(github_data.get('id'))
-            
-        except sqlite3.IntegrityError:
-            # User already exists, update instead
-            return update_user(github_data)
+        
+        # Return the user data
+        cursor.execute("SELECT * FROM users WHERE github_id = ?", (github_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 
 def get_user_by_github_id(github_id: int) -> Optional[dict]:
