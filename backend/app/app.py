@@ -1799,6 +1799,115 @@ async def analyze_commit_range(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/repositories/{full_name:path}/analyze")
+async def analyze_specific_commit(full_name: str, request: Request, background_tasks: BackgroundTasks):
+    """
+    Trigger analysis for a specific commit that wasn't captured by webhook.
+    
+    Request body:
+    {
+        "commit_sha": "sha"
+    }
+    
+    This will:
+    1. Fetch the commit details from GitHub
+    2. Get the parent commit
+    3. Create a webhook event record
+    4. Trigger background analysis
+    """
+    token = get_token_from_request(request)
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    import json
+    
+    try:
+        body = await request.json()
+        commit_sha = body.get('commit_sha')
+        
+        if not commit_sha:
+            raise HTTPException(status_code=400, detail="Missing commit_sha")
+        
+        owner, repo_name = full_name.split('/')
+        
+        # Get repo from database
+        repo = get_repository_by_full_name(full_name)
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
+        # Fetch commit details from GitHub to get parent
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo_name}/commits/{commit_sha}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github.v3+json",
+                }
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code, 
+                    detail="Failed to fetch commit details from GitHub"
+                )
+            
+            commit_data = response.json()
+        
+        # Get parent commit SHA
+        parents = commit_data.get('parents', [])
+        parent_sha = parents[0].get('sha') if parents else '0' * 40
+        
+        # Get the default branch
+        branch = repo.get('default_branch', 'main')
+        
+        # Generate a unique delivery ID
+        import uuid
+        delivery_id = str(uuid.uuid4())
+        
+        # Create the event data
+        event_data = {
+            'repository_full_name': full_name,
+            'before_sha': parent_sha,
+            'commit_sha': commit_sha,
+            'branch': branch,
+            'pusher': commit_data.get('author', {}).get('login', 'manual'),
+            'message': commit_data.get('commit', {}).get('message', '')
+        }
+        
+        # Create webhook event record
+        event_id = create_webhook_event(
+            repository_full_name=full_name,
+            event_type='push',
+            delivery_id=delivery_id,
+            payload=json.dumps(event_data),
+            branch=branch,
+            commit_sha=commit_sha,
+            before_sha=parent_sha
+        )
+        
+        # Trigger background processing
+        background_tasks.add_task(
+            process_webhook_event_background,
+            event_id,
+            event_data
+        )
+        
+        return {
+            "success": True,
+            "message": "Analysis triggered",
+            "event_id": event_id,
+            "commit_sha": commit_sha
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/analyze/events/{event_id}")
 async def get_event_analysis(event_id: int, request: Request):
     """

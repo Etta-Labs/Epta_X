@@ -332,13 +332,154 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     
     function showCommitNotAnalyzed(commitSha) {
-        if (summaryPanel) {
-            summaryPanel.innerHTML = `<div class="summary-header"><h2>Commit ${commitSha.slice(0, 7)}</h2></div><div class="summary-content"><div class="empty-state" style="padding: 40px 20px; text-align: center;"><p style="margin: 0; color: var(--text-secondary);">This commit hasn't been analyzed yet.</p><p style="margin: 8px 0 0; font-size: 12px; color: var(--text-muted);">Analysis is triggered when commits are pushed via webhook.</p></div></div>`;
+        // Reset the summary stats to show empty state
+        document.getElementById('files-changed').textContent = '0';
+        document.getElementById('lines-added').textContent = '0';
+        document.getElementById('lines-removed').textContent = '0';
+        document.getElementById('commit-count').textContent = '1';
+        
+        const webhookTime = document.getElementById('webhook-time');
+        if (webhookTime) {
+            webhookTime.textContent = '';
         }
+        
+        const changeTypes = document.getElementById('change-types');
+        if (changeTypes) {
+            changeTypes.innerHTML = '<span class="change-type-badge pending">Not Analyzed</span>';
+        }
+        
         if (fileTree) {
-            fileTree.innerHTML = '<div class="empty-state"><p>No analysis available</p></div>';
+            fileTree.innerHTML = `
+                <div class="not-analyzed-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center; height: 100%;">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: #9ca3af; margin-bottom: 16px;">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <p style="margin: 0; color: var(--text-secondary); font-weight: 500;">Commit ${commitSha.slice(0, 7)}</p>
+                    <p style="margin: 8px 0 16px; font-size: 13px; color: var(--text-muted);">This commit hasn't been analyzed yet.</p>
+                    <button class="analyze-btn" id="analyze-commit-btn" data-commit="${commitSha}" style="
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                        padding: 10px 20px;
+                        background: linear-gradient(135deg, #3B82F6, #2563EB);
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                        box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+                    ">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                        Analyze Now
+                    </button>
+                </div>
+            `;
+            
+            // Add click handler for analyze button
+            const analyzeBtn = document.getElementById('analyze-commit-btn');
+            if (analyzeBtn) {
+                analyzeBtn.addEventListener('click', () => triggerAnalysis(commitSha));
+            }
         }
         clearDiffContent();
+    }
+    
+    async function triggerAnalysis(commitSha) {
+        const analyzeBtn = document.getElementById('analyze-commit-btn');
+        if (analyzeBtn) {
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerHTML = `
+                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                Analyzing...
+            `;
+        }
+        
+        try {
+            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(selectedRepo.full_name)}/analyze`), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    commit_sha: commitSha
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to trigger analysis');
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Show success and refresh
+                if (analyzeBtn) {
+                    analyzeBtn.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        Analysis Started
+                    `;
+                }
+                
+                // Poll for completion
+                let attempts = 0;
+                const maxAttempts = 30; // 30 seconds max
+                
+                const pollForCompletion = async () => {
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        showUpdateNotification('Analysis taking longer than expected...');
+                        return;
+                    }
+                    
+                    // Check if analysis is complete
+                    const checkResponse = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(selectedRepo.full_name)}/commits?limit=30`));
+                    if (checkResponse.ok) {
+                        const checkData = await checkResponse.json();
+                        const commit = checkData.commits?.find(c => c.sha === commitSha);
+                        
+                        if (commit?.analyzed && commit?.event_id) {
+                            // Analysis complete, load the results
+                            await loadEventAnalysis(selectedRepo.full_name, commit.event_id);
+                            await loadCommitHistory(selectedRepo.full_name);
+                            showUpdateNotification(`Commit ${commitSha.slice(0, 7)} analyzed`);
+                            return;
+                        }
+                    }
+                    
+                    // Continue polling
+                    setTimeout(pollForCompletion, 1000);
+                };
+                
+                setTimeout(pollForCompletion, 1000);
+            } else {
+                throw new Error(data.error || 'Analysis failed');
+            }
+            
+        } catch (error) {
+            console.error('Error triggering analysis:', error);
+            if (analyzeBtn) {
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="15" y1="9" x2="9" y2="15"></line>
+                        <line x1="9" y1="9" x2="15" y2="15"></line>
+                    </svg>
+                    Retry Analysis
+                `;
+            }
+            alert('Failed to start analysis. Please try again.');
+        }
     }
 
     async function loadEventAnalysis(fullName, eventId) {
