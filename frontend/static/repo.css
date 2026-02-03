@@ -574,6 +574,7 @@
     display: flex;
     gap: 12px;
     font-size: 11px;
+    align-items: center;
 }
 
 .history-stat {
@@ -592,6 +593,37 @@
 
 .history-stat.removed {
     color: #ef4444;
+}
+
+.history-stat.analyzed {
+    color: #10b981;
+}
+
+.history-stat.pending {
+    color: #9ca3af;
+    font-style: italic;
+}
+
+.history-author {
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.history-item.analyzed {
+    border-left: 3px solid #10b981;
+}
+
+.commit-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.history-icon img {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
 }
 
 .diff-panel .panel-content {

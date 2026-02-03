@@ -1371,7 +1371,34 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
         analysis_result = None
         if before_sha and after_sha and before_sha != '0' * 40:
             try:
-                analysis_result = analyze_commits(local_path, before_sha, after_sha)
+                # Verify the commits exist in the local repo
+                import asyncio
+                
+                async def verify_commit(sha: str) -> bool:
+                    process = await asyncio.create_subprocess_exec(
+                        'git', 'cat-file', '-t', sha,
+                        cwd=local_path,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    await process.communicate()
+                    return process.returncode == 0
+                
+                if not await verify_commit(after_sha):
+                    print(f"[Background] Commit {after_sha} not found, fetching again...")
+                    # Force fetch to get the specific commit
+                    await clone_or_pull_repo(owner, repo_name, token, branch)
+                    
+                    if not await verify_commit(after_sha):
+                        raise Exception(f"Commit {after_sha} not found after fetch")
+                
+                # Run CPU-bound diff analysis in thread pool to not block event loop
+                import concurrent.futures
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    analysis_result = await loop.run_in_executor(
+                        pool, analyze_commits, local_path, before_sha, after_sha
+                    )
                 print(f"[Background] Analysis complete for event {event_id}")
             except Exception as e:
                 print(f"[Background] Diff analysis error for event {event_id}: {e}")
@@ -1577,46 +1604,72 @@ def get_repo_local_path(owner: str, repo: str) -> str:
 
 
 async def clone_or_pull_repo(owner: str, repo: str, token: str, branch: str = None) -> str:
-    """Clone a repository or pull latest changes if already cloned"""
+    """Clone a repository or pull latest changes if already cloned - uses async subprocess"""
+    import asyncio
+    
     ensure_repo_directory()
     
     local_path = get_repo_local_path(owner, repo)
     clone_url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
     
-    if os.path.exists(os.path.join(local_path, '.git')):
-        # Repository exists, fetch and checkout
+    async def run_git_command(args: list, cwd: str = None, timeout: int = 120) -> tuple:
+        """Run git command asynchronously"""
         try:
-            import subprocess
-            subprocess.run(
-                ['git', 'fetch', '--all'],
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            return process.returncode, stdout.decode(), stderr.decode()
+        except asyncio.TimeoutError:
+            process.kill()
+            raise Exception(f"Git command timed out: {' '.join(args)}")
+    
+    if os.path.exists(os.path.join(local_path, '.git')):
+        # Repository exists - fetch all refs including new commits
+        try:
+            print(f"[Git] Fetching updates for {owner}/{repo}...")
+            
+            # Update remote URL in case token changed
+            await run_git_command(['git', 'remote', 'set-url', 'origin', clone_url], cwd=local_path)
+            
+            # Fetch all branches and tags with full depth
+            returncode, stdout, stderr = await run_git_command(
+                ['git', 'fetch', '--all', '--tags', '--force'],
                 cwd=local_path,
-                capture_output=True,
                 timeout=120
             )
+            if returncode != 0:
+                print(f"[Git] Fetch warning: {stderr}")
+            
+            # Also fetch with unshallow if it was a shallow clone
+            await run_git_command(['git', 'fetch', '--unshallow'], cwd=local_path, timeout=120)
+            
             if branch:
-                subprocess.run(
-                    ['git', 'checkout', branch],
-                    cwd=local_path,
-                    capture_output=True,
-                    timeout=30
-                )
-                subprocess.run(
-                    ['git', 'pull', 'origin', branch],
-                    cwd=local_path,
-                    capture_output=True,
-                    timeout=120
-                )
+                # Checkout and pull the specific branch
+                await run_git_command(['git', 'checkout', branch], cwd=local_path, timeout=30)
+                await run_git_command(['git', 'pull', 'origin', branch, '--ff-only'], cwd=local_path, timeout=120)
+            
+            print(f"[Git] Fetch complete for {owner}/{repo}")
+            
         except Exception as e:
-            print(f"Error updating repo: {e}")
+            print(f"[Git] Error updating repo {owner}/{repo}: {e}")
     else:
-        # Clone the repository
+        # Clone the repository with full history
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         try:
-            import subprocess
-            cmd = ['git', 'clone', clone_url, local_path]
+            print(f"[Git] Cloning {owner}/{repo}...")
+            cmd = ['git', 'clone', '--no-single-branch', clone_url, local_path]
             if branch:
                 cmd.extend(['-b', branch])
-            subprocess.run(cmd, capture_output=True, timeout=300)
+            
+            returncode, stdout, stderr = await run_git_command(cmd, timeout=300)
+            if returncode != 0:
+                raise Exception(f"Clone failed: {stderr}")
+            
+            print(f"[Git] Clone complete for {owner}/{repo}")
         except Exception as e:
             raise Exception(f"Failed to clone repository: {e}")
     
@@ -2144,4 +2197,103 @@ async def get_repository_events(full_name: str, request: Request, limit: int = 2
         }
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/repositories/{full_name:path}/commits")
+async def get_repository_commits(
+    full_name: str, 
+    request: Request, 
+    branch: Optional[str] = None,
+    limit: int = 30
+):
+    """
+    Get commit history for a repository from GitHub API.
+    Returns actual Git commits, not just webhook events.
+    """
+    token = get_token_from_request(request)
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        # Get repo info from database to get default branch
+        repo = get_repository_by_full_name(full_name)
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
+        # Use provided branch or default branch
+        target_branch = branch or repo.get('default_branch', 'main')
+        
+        owner, repo_name = full_name.split('/')
+        
+        # Fetch commits from GitHub API
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo_name}/commits",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                params={
+                    "sha": target_branch,
+                    "per_page": min(limit, 100)
+                }
+            )
+            
+            if response.status_code == 404:
+                raise HTTPException(status_code=404, detail="Repository not found on GitHub")
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Failed to fetch commits from GitHub")
+            
+            commits_data = response.json()
+        
+        # Also get local webhook events to mark which commits have been analyzed
+        events = get_recent_webhook_events(full_name, limit=100)
+        analyzed_commits = {e.get('commit_sha'): e for e in events if e.get('processed')}
+        
+        # Format commits for response
+        commits = []
+        for commit in commits_data:
+            sha = commit.get('sha', '')
+            commit_info = commit.get('commit', {})
+            author_info = commit_info.get('author', {})
+            committer_info = commit_info.get('committer', {})
+            
+            # Check if this commit has been analyzed
+            event_data = analyzed_commits.get(sha)
+            
+            commits.append({
+                "sha": sha,
+                "short_sha": sha[:7] if sha else "",
+                "message": commit_info.get('message', '').split('\n')[0],  # First line only
+                "full_message": commit_info.get('message', ''),
+                "author": {
+                    "name": author_info.get('name', 'Unknown'),
+                    "email": author_info.get('email', ''),
+                    "date": author_info.get('date', ''),
+                    "avatar_url": commit.get('author', {}).get('avatar_url') if commit.get('author') else None,
+                    "login": commit.get('author', {}).get('login') if commit.get('author') else None,
+                },
+                "committer": {
+                    "name": committer_info.get('name', 'Unknown'),
+                    "date": committer_info.get('date', ''),
+                },
+                "url": commit.get('html_url', ''),
+                "analyzed": event_data is not None,
+                "event_id": event_data.get('id') if event_data else None,
+            })
+        
+        return {
+            "repository": full_name,
+            "branch": target_branch,
+            "commits": commits,
+            "count": len(commits)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching commits: {e}")
         raise HTTPException(status_code=500, detail=str(e))

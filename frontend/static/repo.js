@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ETTA-X Repositories View
  * DevOps-style repository inspection interface
  */
@@ -253,47 +253,53 @@ document.addEventListener('DOMContentLoaded', function () {
     async function loadCommitHistory(fullName) {
         if (!historyList) return;
         
-        historyList.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>Loading history...</span></div>';
+        historyList.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>Loading commits...</span></div>';
         
         try {
-            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/events?limit=10`));
+            // Fetch actual Git commits from GitHub API
+            const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/commits?limit=30`));
             
-            if (!response.ok) throw new Error('Failed to load history');
+            if (!response.ok) throw new Error('Failed to load commits');
             
             const data = await response.json();
-            const events = data.events || [];
+            const commits = data.commits || [];
             
             if (historyCount) {
-                historyCount.textContent = `${events.length} events`;
+                historyCount.textContent = `${commits.length} commits`;
             }
             
-            if (events.length === 0) {
-                historyList.innerHTML = '<div class="empty-state"><p>No commit history</p></div>';
+            if (commits.length === 0) {
+                historyList.innerHTML = '<div class="empty-state"><p>No commits found</p></div>';
                 return;
             }
             
-            historyList.innerHTML = events.map((event, index) => `
-                <div class="history-item ${index === 0 ? 'selected' : ''}" data-event-id="${event.id}" data-commit="${event.commit_sha}">
+            historyList.innerHTML = commits.map((commit, index) => `
+                <div class="history-item ${index === 0 ? 'selected' : ''} ${commit.analyzed ? 'analyzed' : ''}" 
+                     data-event-id="${commit.event_id || ''}" 
+                     data-commit="${commit.sha}"
+                     data-analyzed="${commit.analyzed}">
                     <div class="history-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="4"></circle>
-                            <line x1="1.05" y1="12" x2="7" y2="12"></line>
-                            <line x1="17.01" y1="12" x2="22.96" y2="12"></line>
-                        </svg>
+                        ${commit.author.avatar_url 
+                            ? `<img src="${commit.author.avatar_url}" alt="${commit.author.name}" class="commit-avatar" />`
+                            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="4"></circle>
+                                <line x1="1.05" y1="12" x2="7" y2="12"></line>
+                                <line x1="17.01" y1="12" x2="22.96" y2="12"></line>
+                            </svg>`
+                        }
                     </div>
                     <div class="history-content">
                         <div class="history-commit">
-                            <span class="history-sha">${event.commit_sha ? event.commit_sha.slice(0, 7) : 'unknown'}</span>
-                            <span class="history-time">${formatRelativeTime(event.created_at)}</span>
+                            <span class="history-sha">${commit.short_sha}</span>
+                            <span class="history-time">${formatRelativeTime(commit.author.date)}</span>
                         </div>
-                        <div class="history-message">${event.event_type === 'push' ? 'Push to ' + (event.branch || 'main') : event.event_type}</div>
+                        <div class="history-message" title="${commit.full_message}">${commit.message}</div>
                         <div class="history-stats">
-                            <span class="history-stat files">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-                                </svg>
-                                ${event.processed ? 'âœ“ Processed' : 'Pending'}
-                            </span>
+                            <span class="history-author">${commit.author.login || commit.author.name}</span>
+                            ${commit.analyzed 
+                                ? `<span class="history-stat analyzed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Analyzed</span>`
+                                : `<span class="history-stat pending">Not analyzed</span>`
+                            }
                         </div>
                     </div>
                 </div>
@@ -306,16 +312,33 @@ document.addEventListener('DOMContentLoaded', function () {
                     item.classList.add('selected');
                     
                     const eventId = item.dataset.eventId;
-                    if (eventId && selectedRepo) {
-                        await loadEventAnalysis(selectedRepo.full_name, eventId);
+                    const commitSha = item.dataset.commit;
+                    const isAnalyzed = item.dataset.analyzed === 'true';
+                    
+                    if (selectedRepo) {
+                        if (isAnalyzed && eventId) {
+                            await loadEventAnalysis(selectedRepo.full_name, eventId);
+                        } else {
+                            showCommitNotAnalyzed(commitSha);
+                        }
                     }
                 });
             });
             
         } catch (error) {
-            console.error('Error loading history:', error);
-            historyList.innerHTML = '<div class="empty-state"><p>Failed to load history</p></div>';
+            console.error('Error loading commits:', error);
+            historyList.innerHTML = '<div class="empty-state"><p>Failed to load commits</p></div>';
         }
+    }
+    
+    function showCommitNotAnalyzed(commitSha) {
+        if (summaryPanel) {
+            summaryPanel.innerHTML = `<div class="summary-header"><h2>Commit ${commitSha.slice(0, 7)}</h2></div><div class="summary-content"><div class="empty-state" style="padding: 40px 20px; text-align: center;"><p style="margin: 0; color: var(--text-secondary);">This commit hasn't been analyzed yet.</p><p style="margin: 8px 0 0; font-size: 12px; color: var(--text-muted);">Analysis is triggered when commits are pushed via webhook.</p></div></div>`;
+        }
+        if (fileTree) {
+            fileTree.innerHTML = '<div class="empty-state"><p>No analysis available</p></div>';
+        }
+        clearDiffContent();
     }
 
     async function loadEventAnalysis(fullName, eventId) {
