@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException, Depends, status, BackgroundTasks
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from pydantic import BaseModel
@@ -63,6 +64,15 @@ csrf_states: dict[str, float] = {}
 CSRF_STATE_EXPIRY = 600  # 10 minutes
 
 app = FastAPI()
+
+# CORS Configuration - Allow Electron app to make requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Security Headers Middleware

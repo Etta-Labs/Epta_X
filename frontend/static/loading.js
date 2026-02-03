@@ -1,4 +1,9 @@
-// Load configuration from JSON
+// Get API base URL from config (set by api-config.js)
+function getApiUrl(endpoint) {
+    return window.ETTA_API ? `${window.ETTA_API.baseUrl}${endpoint}` : endpoint;
+}
+
+// Load configuration from JSON (local file, not API)
 async function loadConfig() {
     try {
         const response = await fetch('/config/app-config.json');
@@ -26,7 +31,7 @@ function isAppStartup() {
 async function checkSetupStatus() {
     try {
         // Check backend setup status
-        const setupResponse = await fetch('/api/setup/status');
+        const setupResponse = await fetch(getApiUrl('/api/setup/status'), { credentials: 'include' });
         const setupData = await setupResponse.json();
         
         // If first run or no users, needs setup
@@ -35,7 +40,7 @@ async function checkSetupStatus() {
         }
         
         // Check if user is authenticated
-        const authResponse = await fetch('/auth/github/status');
+        const authResponse = await fetch(getApiUrl('/auth/github/status'), { credentials: 'include' });
         const authData = await authResponse.json();
         
         if (!authData.authenticated) {
@@ -50,7 +55,7 @@ async function checkSetupStatus() {
         }
         
         // Check if user exists in database
-        const userCheckResponse = await fetch('/api/setup/check-user');
+        const userCheckResponse = await fetch(getApiUrl('/api/setup/check-user'), { credentials: 'include' });
         const userCheckData = await userCheckResponse.json();
         
         if (!userCheckData.exists) {
@@ -80,12 +85,12 @@ async function initializeLoadingScreen() {
     // Quick check for authenticated users who just navigated here
     if (!isFreshStart) {
         try {
-            const authResponse = await fetch('/auth/github/status');
+            const authResponse = await fetch(getApiUrl('/auth/github/status'), { credentials: 'include' });
             const authData = await authResponse.json();
             
             if (authData.authenticated) {
                 // User is authenticated and this isn't startup - skip loading
-                window.location.replace('/dashboard');
+                window.location.replace('/pages/index.html');
                 return;
             }
         } catch (e) {
@@ -138,12 +143,12 @@ async function initializeLoadingScreen() {
         }
     }
     
-    // Redirect after loading animation
+    // Redirect after loading animation (use local page paths for Electron)
     setTimeout(() => {
         if (setupStatus.needsSetup) {
-            window.location.href = '/setup';
+            window.location.href = '/pages/setup.html';
         } else {
-            window.location.href = '/dashboard';
+            window.location.href = '/pages/index.html';
         }
     }, loadingDuration);
 }

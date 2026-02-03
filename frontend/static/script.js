@@ -1,7 +1,12 @@
-// App Configuration
+﻿// App Configuration
 let appConfig = null;
 let isLoggedIn = false;
 let lastUserData = null;
+
+// Get API base URL from config (set by api-config.js)
+function getApiUrl(endpoint) {
+    return window.ETTA_API ? `${window.ETTA_API.baseUrl}${endpoint}` : endpoint;
+}
 
 
 
@@ -48,7 +53,7 @@ function loginWithGitHub() {
     // Check if running in Electron
     if (window.electronAPI && window.electronAPI.openOAuth) {
         // Get the OAuth URL from the server and open in external browser
-        fetch('/auth/github/login-url')
+        fetch(getApiUrl('/auth/github/login-url'))
             .then(response => response.json())
             .then(data => {
                 if (data.url) {
@@ -106,7 +111,7 @@ async function loginWithDifferentAccount() {
 
     // First logout to clear server-side cookies
     try {
-        await fetch('/auth/github/logout', {
+        await fetch(getApiUrl('/auth/github/logout'), {
             method: 'GET',
             credentials: 'include'
         });
@@ -118,7 +123,7 @@ async function loginWithDifferentAccount() {
     if (window.electronAPI && window.electronAPI.openOAuth) {
         dashboardOAuthCompleted = false;
         // Get the OAuth URL with force_login flag
-        fetch('/auth/github/login-url?force_login=true')
+        fetch(getApiUrl('/auth/github/login-url?force_login=true'))
             .then(response => response.json())
             .then(data => {
                 if (data.url) {
@@ -200,7 +205,7 @@ if (window.electronAPI && window.electronAPI.onOAuthCallback) {
 
         try {
             // Set the token via API
-            const response = await fetch('/auth/set-token', {
+            const response = await fetch(getApiUrl('/auth/set-token'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -251,7 +256,7 @@ async function loadAppConfig() {
 // Load user profile from API
 async function loadUserProfile() {
     try {
-        const response = await fetch('/auth/github/status');
+        const response = await fetch(getApiUrl('/auth/github/status'));
         const data = await response.json();
 
         // Get settings logout item to show/hide based on auth state
@@ -283,7 +288,7 @@ async function loadUserProfile() {
 
             // Try to get full user info for avatar
             try {
-                const userResponse = await fetch('/auth/github/user');
+                const userResponse = await fetch(getApiUrl('/auth/github/user'));
                 if (userResponse.ok) {
                     const userData = await userResponse.json();
                     lastUserData = userData;
@@ -478,7 +483,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         try {
-            const response = await fetch('/api/github/repos', {
+            const response = await fetch(getApiUrl('/api/github/repos'), {
                 credentials: 'include'
             });
 
@@ -548,7 +553,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             branches.forEach(branch => {
                 const option = document.createElement('option');
                 option.value = branch.name;
-                option.textContent = branch.name + (branch.protected ? ' 🔒' : '');
+                option.textContent = branch.name + (branch.protected ? ' ðŸ”’' : '');
                 branchSelect.appendChild(option);
             });
 
@@ -609,7 +614,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             // Re-check auth status in case it changed
             if (!isLoggedIn) {
                 try {
-                    const authCheck = await fetch('/auth/github/status');
+                    const authCheck = await fetch(getApiUrl('/auth/github/status'));
                     const authData = await authCheck.json();
                     if (authData.authenticated) {
                         isLoggedIn = true;
@@ -916,3 +921,5 @@ document.addEventListener('click', function (e) {
         }
     }
 });
+
+

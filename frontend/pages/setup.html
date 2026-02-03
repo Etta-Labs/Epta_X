@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -847,7 +847,13 @@
         </div>
     </div>
 
+    <script src="/static/api-config.js"></script>
     <script>
+        // Get API base URL from config (set by api-config.js which loads before this)
+        function getApiUrl(endpoint) {
+            return window.ETTA_API ? `${window.ETTA_API.baseUrl}${endpoint}` : endpoint;
+        }
+        
         let currentStep = 1;
         let userData = null;
 
@@ -877,7 +883,7 @@
             if (window.electronAPI && window.electronAPI.openOAuth) {
                 // Get the OAuth URL from the server (to get proper CSRF state)
                 try {
-                    const response = await fetch('/auth/github/login-url?setup=true');
+                    const response = await fetch(getApiUrl('/auth/github/login-url?setup=true'));
                     const data = await response.json();
 
                     if (data.url) {
@@ -942,7 +948,7 @@
 
                 try {
                     // Set the token via API
-                    const response = await fetch('/auth/set-token', {
+                    const response = await fetch(getApiUrl('/auth/set-token'), {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -956,7 +962,7 @@
                         showLoading('Creating your account...');
 
                         // Create/Confirm user
-                        const createResponse = await fetch('/api/setup/create-user', {
+                        const createResponse = await fetch(getApiUrl('/api/setup/create-user'), {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
@@ -995,7 +1001,7 @@
         // Check if returning from GitHub OAuth (for web browser fallback)
         async function checkAuthStatus() {
             try {
-                const response = await fetch('/auth/github/status', { credentials: 'include' });
+                const response = await fetch(getApiUrl('/auth/github/status'), { credentials: 'include' });
                 const data = await response.json();
 
                 if (data.authenticated) {
@@ -1028,7 +1034,7 @@
 
                 if (i < step) {
                     stepEl.classList.add('completed');
-                    stepEl.innerHTML = '✓';
+                    stepEl.innerHTML = 'âœ“';
                     if (lineEl) lineEl.classList.add('completed');
                 } else if (i === step) {
                     stepEl.classList.add('active');
@@ -1063,7 +1069,7 @@
             showLoading('Creating your account...');
 
             try {
-                const response = await fetch('/api/setup/create-user', {
+                const response = await fetch(getApiUrl('/api/setup/create-user'), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1104,7 +1110,7 @@
 
             // First logout to clear server-side cookies
             try {
-                await fetch('/auth/github/logout', {
+                await fetch(getApiUrl('/auth/github/logout'), {
                     method: 'GET',
                     credentials: 'include'
                 });
@@ -1116,7 +1122,7 @@
             if (window.electronAPI && window.electronAPI.openOAuth) {
                 // Get OAuth URL and open in external browser
                 try {
-                    const response = await fetch('/auth/github/login-url?setup=true&force_login=true');
+                    const response = await fetch(getApiUrl('/auth/github/login-url?setup=true&force_login=true'));
                     const data = await response.json();
 
                     if (data.url) {
@@ -1145,18 +1151,18 @@
         // Check if setup is already complete
         async function checkIfSetupComplete() {
             try {
-                const response = await fetch('/api/setup/status');
+                const response = await fetch(getApiUrl('/api/setup/status'));
                 const data = await response.json();
 
                 // If setup is done and user exists, redirect to landing (which goes to dashboard)
                 if (!data.is_first_run && data.has_users) {
                     // Check if current user is authenticated
-                    const authResponse = await fetch('/auth/github/status', { credentials: 'include' });
+                    const authResponse = await fetch(getApiUrl('/auth/github/status'), { credentials: 'include' });
                     const authData = await authResponse.json();
 
                     if (authData.authenticated) {
                         // Check if authenticated user exists in DB
-                        const userCheck = await fetch('/api/setup/check-user', { credentials: 'include' });
+                        const userCheck = await fetch(getApiUrl('/api/setup/check-user'), { credentials: 'include' });
                         const userCheckData = await userCheck.json();
 
                         if (userCheckData.exists) {
@@ -1188,7 +1194,7 @@
             if (isFreshSetup) {
                 // Force logout to ensure fresh start
                 try {
-                    await fetch('/auth/github/logout', { credentials: 'include' });
+                    await fetch(getApiUrl('/auth/github/logout'), { credentials: 'include' });
                     console.log('Logged out for fresh setup');
                     // Remove the query param so refresh doesn't keep logging out
                     window.history.replaceState({}, '', '/setup');
@@ -1213,6 +1219,4 @@
             }, 5000);
         });
     </script>
-</body>
 
-</html>

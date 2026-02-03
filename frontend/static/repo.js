@@ -1,7 +1,12 @@
-/**
+﻿/**
  * ETTA-X Repositories View
  * DevOps-style repository inspection interface
  */
+
+// Get API base URL from config (set by api-config.js)
+function getApiUrl(endpoint) {
+    return window.ETTA_API ? `${window.ETTA_API.baseUrl}${endpoint}` : endpoint;
+}
 
 document.addEventListener('DOMContentLoaded', function () {
     // ==================== STATE ====================
@@ -109,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function () {
         showLoading(repoList);
 
         try {
-            const response = await fetch('/api/repositories/connected', {
+            const response = await fetch(getApiUrl('/api/repositories/connected'), {
                 credentials: 'include'
             });
 
@@ -228,7 +233,7 @@ document.addEventListener('DOMContentLoaded', function () {
         historyList.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>Loading history...</span></div>';
         
         try {
-            const response = await fetch(`/api/repositories/${encodeURIComponent(fullName)}/events?limit=10`, {
+            const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/events?limit=10`), {
                 credentials: 'include'
             });
             
@@ -266,7 +271,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
                                 </svg>
-                                ${event.processed ? '✓ Processed' : 'Pending'}
+                                ${event.processed ? 'âœ“ Processed' : 'Pending'}
                             </span>
                         </div>
                     </div>
@@ -297,7 +302,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clearDiffContent();
 
         try {
-            const response = await fetch(`/api/repositories/${encodeURIComponent(fullName)}/analysis?event_id=${eventId}`, {
+            const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/analysis?event_id=${eventId}`), {
                 credentials: 'include'
             });
 
@@ -324,7 +329,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clearDiffContent();
 
         try {
-            const response = await fetch(`/api/repositories/${encodeURIComponent(fullName)}/analysis`, {
+            const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/analysis`), {
                 credentials: 'include'
             });
 
@@ -354,7 +359,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // First, get the current latest event ID so we only notify on NEW events
         try {
-            const initResponse = await fetch(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`, {
+            const initResponse = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`), {
                 credentials: 'include'
             });
             if (initResponse.ok) {
@@ -376,7 +381,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             try {
-                const response = await fetch(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`, {
+                const response = await fetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`), {
                     credentials: 'include'
                 });
                 
@@ -758,3 +763,5 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 });
+
+

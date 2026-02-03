@@ -1,4 +1,7 @@
 {
+    "api": {
+        "baseUrl": "https://etta.gowshik.online"
+    },
     "theme": {
         "mode": "light",
         "loadingScreen": {
