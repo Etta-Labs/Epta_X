@@ -115,6 +115,56 @@ def init_database():
             )
         """)
         
+        # Webhooks table - stores registered webhook configurations
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repository_id INTEGER NOT NULL,
+                github_hook_id INTEGER NOT NULL,
+                webhook_url TEXT NOT NULL,
+                secret_hash TEXT NOT NULL,
+                events TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                last_delivery_at TIMESTAMP,
+                last_delivery_status VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+                UNIQUE(repository_id, github_hook_id)
+            )
+        """)
+        
+        # Webhook events table - stores received webhook events for processing
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                webhook_id INTEGER,
+                github_delivery_id VARCHAR(255) UNIQUE,
+                event_type VARCHAR(50) NOT NULL,
+                repository_full_name VARCHAR(255) NOT NULL,
+                branch VARCHAR(255),
+                commit_sha VARCHAR(40),
+                before_sha VARCHAR(40),
+                payload TEXT NOT NULL,
+                processed BOOLEAN DEFAULT 0,
+                processed_at TIMESTAMP,
+                processing_result TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE SET NULL
+            )
+        """)
+        
+        # Create index for faster webhook event queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_webhook_events_processed 
+            ON webhook_events(processed, created_at)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_webhook_events_repo 
+            ON webhook_events(repository_full_name, branch)
+        """)
+        
         # App metadata table - stores application state
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS app_metadata (
@@ -311,5 +361,290 @@ def user_exists() -> bool:
         return row['count'] > 0 if row else False
 
 
-# Initialize database on module import
-init_database()
+# ==================== REPOSITORY CRUD ====================
+
+def create_repository(user_id: int, repo_data: dict) -> Optional[dict]:
+    """Create or update a repository record"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO repositories (
+                    user_id, github_repo_id, name, full_name, description,
+                    url, clone_url, default_branch, is_private
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, github_repo_id) DO UPDATE SET
+                    name = excluded.name,
+                    full_name = excluded.full_name,
+                    description = excluded.description,
+                    url = excluded.url,
+                    clone_url = excluded.clone_url,
+                    default_branch = excluded.default_branch,
+                    is_private = excluded.is_private,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                user_id,
+                repo_data.get('id'),
+                repo_data.get('name'),
+                repo_data.get('full_name'),
+                repo_data.get('description'),
+                repo_data.get('html_url'),
+                repo_data.get('clone_url'),
+                repo_data.get('default_branch', 'main'),
+                1 if repo_data.get('private') else 0,
+            ))
+            
+            conn.commit()
+            
+            return get_repository_by_github_id(user_id, repo_data.get('id'))
+            
+        except Exception as e:
+            print(f"Error creating repository: {e}")
+            return None
+
+
+def get_repository_by_github_id(user_id: int, github_repo_id: int) -> Optional[dict]:
+    """Get a repository by GitHub repo ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM repositories WHERE user_id = ? AND github_repo_id = ?",
+            (user_id, github_repo_id)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_repository_by_full_name(full_name: str) -> Optional[dict]:
+    """Get a repository by full name (owner/repo)"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM repositories WHERE full_name = ?", (full_name,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_user_repositories(user_id: int) -> list:
+    """Get all repositories for a user"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM repositories WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+# ==================== WEBHOOK CRUD ====================
+
+def create_webhook(repository_id: int, github_hook_id: int, webhook_url: str, 
+                   secret_hash: str, events: list) -> Optional[dict]:
+    """Create a webhook record"""
+    import json
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO webhooks (
+                    repository_id, github_hook_id, webhook_url, secret_hash, events
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(repository_id, github_hook_id) DO UPDATE SET
+                    webhook_url = excluded.webhook_url,
+                    secret_hash = excluded.secret_hash,
+                    events = excluded.events,
+                    is_active = 1,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                repository_id,
+                github_hook_id,
+                webhook_url,
+                secret_hash,
+                json.dumps(events),
+            ))
+            
+            conn.commit()
+            
+            return get_webhook_by_github_id(repository_id, github_hook_id)
+            
+        except Exception as e:
+            print(f"Error creating webhook: {e}")
+            return None
+
+
+def get_webhook_by_github_id(repository_id: int, github_hook_id: int) -> Optional[dict]:
+    """Get a webhook by GitHub hook ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM webhooks WHERE repository_id = ? AND github_hook_id = ?",
+            (repository_id, github_hook_id)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_webhook_by_repository(repository_id: int) -> Optional[dict]:
+    """Get the active webhook for a repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM webhooks WHERE repository_id = ? AND is_active = 1",
+            (repository_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_webhook_secret_hash(repository_full_name: str) -> Optional[str]:
+    """Get the webhook secret hash for a repository (for signature verification)"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT w.secret_hash 
+            FROM webhooks w
+            JOIN repositories r ON w.repository_id = r.id
+            WHERE r.full_name = ? AND w.is_active = 1
+        """, (repository_full_name,))
+        row = cursor.fetchone()
+        return row['secret_hash'] if row else None
+
+
+def update_webhook_delivery(repository_id: int, github_hook_id: int, 
+                            status: str) -> bool:
+    """Update webhook last delivery info"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE webhooks 
+            SET last_delivery_at = CURRENT_TIMESTAMP,
+                last_delivery_status = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE repository_id = ? AND github_hook_id = ?
+        """, (status, repository_id, github_hook_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def deactivate_webhook(repository_id: int, github_hook_id: int) -> bool:
+    """Mark a webhook as inactive"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE webhooks 
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE repository_id = ? AND github_hook_id = ?
+        """, (repository_id, github_hook_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ==================== WEBHOOK EVENT CRUD ====================
+
+def create_webhook_event(event_data: dict) -> Optional[dict]:
+    """Create a webhook event record for processing"""
+    import json
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO webhook_events (
+                    webhook_id, github_delivery_id, event_type,
+                    repository_full_name, branch, commit_sha, before_sha, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event_data.get('webhook_id'),
+                event_data.get('delivery_id'),
+                event_data.get('event_type'),
+                event_data.get('repository_full_name'),
+                event_data.get('branch'),
+                event_data.get('commit_sha'),
+                event_data.get('before_sha'),
+                json.dumps(event_data.get('payload', {})),
+            ))
+            
+            conn.commit()
+            
+            return get_webhook_event_by_id(cursor.lastrowid)
+            
+        except Exception as e:
+            print(f"Error creating webhook event: {e}")
+            return None
+
+
+def get_webhook_event_by_id(event_id: int) -> Optional[dict]:
+    """Get a webhook event by ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_webhook_event_by_delivery_id(delivery_id: str) -> Optional[dict]:
+    """Get a webhook event by GitHub delivery ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM webhook_events WHERE github_delivery_id = ?",
+            (delivery_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_unprocessed_webhook_events(limit: int = 100) -> list:
+    """Get unprocessed webhook events for processing"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM webhook_events 
+            WHERE processed = 0 
+            ORDER BY created_at ASC 
+            LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def mark_webhook_event_processed(event_id: int, result: str = None) -> bool:
+    """Mark a webhook event as processed"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE webhook_events 
+            SET processed = 1,
+                processed_at = CURRENT_TIMESTAMP,
+                processing_result = ?
+            WHERE id = ?
+        """, (result, event_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_recent_webhook_events(repository_full_name: str = None, 
+                               limit: int = 50) -> list:
+    """Get recent webhook events, optionally filtered by repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        if repository_full_name:
+            cursor.execute("""
+                SELECT * FROM webhook_events 
+                WHERE repository_full_name = ?
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (repository_full_name, limit))
+        else:
+            cursor.execute("""
+                SELECT * FROM webhook_events 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (limit,))
+        
+        return [dict(row) for row in cursor.fetchall()]
+
+# Database is initialized via app.py startup event
