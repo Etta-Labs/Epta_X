@@ -1327,22 +1327,41 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
             print(f"[Background] Repository not found: {repo_full_name}")
             return
         
+        print(f"[Background] Found repo in DB: user_id={repo.get('user_id')}")
+        
         # Get user's token from user_sessions (joined via repositories)
         token = None
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            # Debug: check what sessions exist
+            cursor.execute("""
+                SELECT s.id, s.user_id, s.expires_at, r.full_name 
+                FROM user_sessions s 
+                JOIN repositories r ON r.user_id = s.user_id 
+                WHERE r.full_name = ?
+            """, (repo_full_name,))
+            all_sessions = cursor.fetchall()
+            print(f"[Background] Found {len(all_sessions)} sessions for repo {repo_full_name}")
+            for sess in all_sessions:
+                print(f"[Background]   Session: id={sess['id']}, user_id={sess['user_id']}, expires_at={sess['expires_at']}")
+            
+            # Use datetime comparison - SQLite compares ISO strings lexicographically
+            from datetime import datetime
+            now_iso = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
             cursor.execute("""
                 SELECT s.github_access_token FROM user_sessions s 
                 JOIN repositories r ON r.user_id = s.user_id 
-                WHERE r.full_name = ? AND s.expires_at > datetime('now')
+                WHERE r.full_name = ? AND s.expires_at > ?
                 ORDER BY s.created_at DESC LIMIT 1
-            """, (repo_full_name,))
+            """, (repo_full_name, now_iso))
             row = cursor.fetchone()
             if row:
                 token = row['github_access_token']
+                print(f"[Background] Found valid token for repo {repo_full_name}")
         
         if not token:
-            print(f"[Background] No access token found for repo {repo_full_name}")
+            print(f"[Background] No access token found for repo {repo_full_name} - session may have expired")
             return
         
         # Clone or pull the repository
