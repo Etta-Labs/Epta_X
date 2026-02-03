@@ -1,0 +1,1 @@
+The Server - Client architech was implemented sucessfully, current code will properly analyze what are the repo diff and what line is changed.
