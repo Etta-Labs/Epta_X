@@ -1876,15 +1876,21 @@ async def analyze_specific_commit(full_name: str, request: Request, background_t
         }
         
         # Create webhook event record
-        event_id = create_webhook_event(
-            repository_full_name=full_name,
-            event_type='push',
-            delivery_id=delivery_id,
-            payload=json.dumps(event_data),
-            branch=branch,
-            commit_sha=commit_sha,
-            before_sha=parent_sha
-        )
+        webhook_event_data = {
+            'repository_full_name': full_name,
+            'event_type': 'push',
+            'delivery_id': delivery_id,
+            'payload': event_data,
+            'branch': branch,
+            'commit_sha': commit_sha,
+            'before_sha': parent_sha
+        }
+        stored_event = create_webhook_event(webhook_event_data)
+        
+        if not stored_event:
+            raise HTTPException(status_code=500, detail="Failed to store webhook event")
+        
+        event_id = stored_event['id']
         
         # Trigger background processing
         background_tasks.add_task(
