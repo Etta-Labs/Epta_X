@@ -130,14 +130,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 window.ETTA_API.authFetch(getApiUrl(`/api/impact-analysis/history/${encodeURIComponent(fullName)}`))
             ]);
 
+            let historyData = { predictions: [] };
+
             if (statsRes.ok) {
                 const statsData = await statsRes.json();
                 renderStats(statsData.stats);
             }
 
             if (historyRes.ok) {
-                const historyData = await historyRes.json();
+                historyData = await historyRes.json();
                 predictions = historyData.predictions || [];
+            }
+
+            // If no predictions exist, fetch recent commits and analyze them
+            if (predictions.length === 0) {
+                console.log('[Impact Analysis] No predictions found, fetching commits to analyze...');
+                await analyzeRecentCommits(fullName);
+            } else {
                 renderCommitList(predictions);
             }
 
@@ -157,6 +166,95 @@ document.addEventListener('DOMContentLoaded', function () {
                 `;
             }
         }
+    }
+
+    // ==================== ANALYZE RECENT COMMITS ====================
+    async function analyzeRecentCommits(fullName) {
+        try {
+            // Show analyzing state
+            if (commitList) {
+                commitList.innerHTML = `
+                    <div class="impact-empty-state">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="loading-spinner">
+                            <circle cx="12" cy="12" r="10"></circle>
+                        </svg>
+                        <p>Analyzing recent commits...</p>
+                        <span class="hint">Running ML predictions</span>
+                    </div>
+                `;
+            }
+
+            // Fetch recent commits from the repository
+            const commitsRes = await window.ETTA_API.authFetch(
+                getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/commits?limit=10`)
+            );
+
+            if (!commitsRes.ok) {
+                console.error('[Impact Analysis] Failed to fetch commits');
+                renderCommitList([]);
+                return;
+            }
+
+            const commitsData = await commitsRes.json();
+            const commits = commitsData.commits || [];
+
+            if (commits.length === 0) {
+                console.log('[Impact Analysis] No commits found');
+                renderCommitList([]);
+                return;
+            }
+
+            console.log(`[Impact Analysis] Analyzing ${commits.length} commits...`);
+
+            // Analyze each commit (run up to 5 to avoid overwhelming)
+            const analyzePromises = commits.slice(0, 5).map(commit =>
+                analyzeCommit(fullName, commit.sha)
+            );
+
+            await Promise.all(analyzePromises);
+
+            // Reload history after analysis
+            const historyRes = await window.ETTA_API.authFetch(
+                getApiUrl(`/api/impact-analysis/history/${encodeURIComponent(fullName)}`)
+            );
+
+            if (historyRes.ok) {
+                const historyData = await historyRes.json();
+                predictions = historyData.predictions || [];
+                renderCommitList(predictions);
+
+                // Refresh stats
+                const statsRes = await window.ETTA_API.authFetch(
+                    getApiUrl(`/api/impact-analysis/stats/${encodeURIComponent(fullName)}`)
+                );
+                if (statsRes.ok) {
+                    const statsData = await statsRes.json();
+                    renderStats(statsData.stats);
+                }
+            }
+
+        } catch (error) {
+            console.error('[Impact Analysis] Error analyzing commits:', error);
+            renderCommitList([]);
+        }
+    }
+
+    // ==================== ANALYZE SINGLE COMMIT ====================
+    async function analyzeCommit(fullName, commitSha) {
+        try {
+            const response = await window.ETTA_API.authFetch(
+                getApiUrl(`/api/impact-analysis/analyze/${encodeURIComponent(fullName)}/commit/${commitSha}`)
+            );
+
+            if (response.ok) {
+                const result = await response.json();
+                console.log(`[Impact Analysis] Analyzed ${commitSha.substring(0, 7)}:`, result.prediction);
+                return result;
+            }
+        } catch (error) {
+            console.error(`[Impact Analysis] Error analyzing commit ${commitSha}:`, error);
+        }
+        return null;
     }
 
     // ==================== RENDER STATS ====================

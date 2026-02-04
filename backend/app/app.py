@@ -2514,6 +2514,7 @@ async def analyze_commit_for_impact(
     Analyze a specific commit for impact and return predictions.
     Uses existing analysis data if available.
     """
+    print(f"[IMPACT ANALYZE] Starting analysis for {full_name} commit {commit_sha[:7]}")
     try:
         token = get_token_from_request(request)
         if not token:
@@ -2523,6 +2524,7 @@ async def analyze_commit_for_impact(
         if not force:
             existing = get_impact_prediction_by_commit(commit_sha, full_name)
             if existing:
+                print(f"[IMPACT ANALYZE] Found cached prediction for {commit_sha[:7]}")
                 import json
                 return {
                     'prediction_id': existing['id'],
@@ -2550,12 +2552,14 @@ async def analyze_commit_for_impact(
                 try:
                     analysis_data = json.loads(event['processing_result'])
                     branch = event.get('branch')
+                    print(f"[IMPACT ANALYZE] Found stored analysis for {commit_sha[:7]}")
                     break
                 except:
                     pass
         
         # If no stored analysis, try to fetch from GitHub and analyze
         if not analysis_data:
+            print(f"[IMPACT ANALYZE] Fetching commit from GitHub: {commit_sha[:7]}")
             github = GitHubAPI(token)
             
             # Get commit details
@@ -2572,16 +2576,22 @@ async def analyze_commit_for_impact(
                     'files': [{'path': f.get('filename', '')} for f in files]
                 }
                 branch = commit_data.get('commit', {}).get('message', '').split('\n')[0]
+                print(f"[IMPACT ANALYZE] Got commit data: {len(files)} files, {analysis_data['summary']['lines_added']} additions")
         
         if not analysis_data:
+            print(f"[IMPACT ANALYZE] No analysis data found for {commit_sha[:7]}")
             raise HTTPException(
                 status_code=404, 
                 detail="No analysis data found for this commit"
             )
         
         # Extract features and predict
+        print(f"[IMPACT ANALYZE] Extracting features and running prediction...")
         features = extract_features_from_analysis(analysis_data, full_name)
+        print(f"[IMPACT ANALYZE] Features extracted: {features}")
+        
         prediction = predict_risk(features)
+        print(f"[IMPACT ANALYZE] Prediction result: {prediction}")
         
         # Store the prediction
         prediction_data = {
@@ -2597,6 +2607,7 @@ async def analyze_commit_for_impact(
             'prediction': prediction
         }
         stored = create_impact_prediction(prediction_data)
+        print(f"[IMPACT ANALYZE] Stored prediction with ID: {stored['id'] if stored else 'None'}")
         
         return {
             'prediction_id': stored['id'] if stored else None,
@@ -2610,7 +2621,9 @@ async def analyze_commit_for_impact(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error analyzing commit for impact: {e}")
+        print(f"[IMPACT ANALYZE] Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
