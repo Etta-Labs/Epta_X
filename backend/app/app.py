@@ -2565,18 +2565,52 @@ async def analyze_commit_for_impact(
             # Get commit details
             commit_data = github.get_commit_diff(full_name, commit_sha)
             if commit_data:
-                # Create minimal analysis data structure
+                # Extract detailed file information from GitHub API response
                 files = commit_data.get('files', [])
+                
+                # Build detailed analysis data with actual file paths and changes
+                file_details = []
+                total_additions = 0
+                total_deletions = 0
+                
+                for f in files:
+                    filename = f.get('filename', '')
+                    additions = f.get('additions', 0)
+                    deletions = f.get('deletions', 0)
+                    status = f.get('status', 'modified')  # added, removed, modified, renamed
+                    patch = f.get('patch', '')  # The actual diff content
+                    
+                    total_additions += additions
+                    total_deletions += deletions
+                    
+                    file_details.append({
+                        'path': filename,
+                        'additions': additions,
+                        'deletions': deletions,
+                        'changes': additions + deletions,
+                        'status': status,
+                        'has_patch': bool(patch)
+                    })
+                
                 analysis_data = {
                     'summary': {
                         'files_changed': len(files),
-                        'lines_added': sum(f.get('additions', 0) for f in files),
-                        'lines_removed': sum(f.get('deletions', 0) for f in files)
+                        'lines_added': total_additions,
+                        'lines_removed': total_deletions,
+                        'total_changes': total_additions + total_deletions
                     },
-                    'files': [{'path': f.get('filename', '')} for f in files]
+                    'files': file_details,
+                    'commit': {
+                        'sha': commit_sha,
+                        'message': commit_data.get('commit', {}).get('message', ''),
+                        'author': commit_data.get('commit', {}).get('author', {}).get('name', ''),
+                        'date': commit_data.get('commit', {}).get('author', {}).get('date', '')
+                    }
                 }
                 branch = commit_data.get('commit', {}).get('message', '').split('\n')[0]
-                print(f"[IMPACT ANALYZE] Got commit data: {len(files)} files, {analysis_data['summary']['lines_added']} additions")
+                
+                print(f"[IMPACT ANALYZE] Got commit data: {len(files)} files, +{total_additions}/-{total_deletions} lines")
+                print(f"[IMPACT ANALYZE] Files: {[f['path'] for f in file_details]}")
         
         if not analysis_data:
             print(f"[IMPACT ANALYZE] No analysis data found for {commit_sha[:7]}")

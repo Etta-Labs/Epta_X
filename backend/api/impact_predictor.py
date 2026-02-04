@@ -90,11 +90,63 @@ def load_model():
 
 
 def infer_module_from_path(file_paths: List[str]) -> str:
-    """Infer module name from file paths."""
+    """Infer module name from ACTUAL file paths in the commit."""
     if not file_paths:
         return 'GenericHandler'
     
-    # Extract potential module names from paths
+    # Combine all paths for analysis
+    path_str = ' '.join(file_paths).lower()
+    
+    # Check for specific module patterns in actual file paths
+    # Payment/Billing related - HIGH PRIORITY
+    if any(x in path_str for x in ['payment', 'billing', 'checkout', 'stripe', 'paypal', 'transaction', 'invoice', 'wallet', 'refund']):
+        return 'PaymentGateway'
+    
+    # Auth/Security related - HIGH PRIORITY
+    if any(x in path_str for x in ['auth', 'login', 'oauth', 'security', 'credential', 'token', 'session', 'permission', 'crypto']):
+        return 'AuthService'
+    
+    # Database/Core infrastructure
+    if any(x in path_str for x in ['database', 'db', 'migration', 'model', 'schema', 'repository']):
+        return 'DatabaseManager'
+    
+    # Cache/Performance
+    if any(x in path_str for x in ['cache', 'redis', 'memcache']):
+        return 'CacheManager'
+    
+    # Search related
+    if any(x in path_str for x in ['search', 'query', 'elastic', 'index', 'filter']):
+        return 'SearchEngine'
+    
+    # User/Profile related
+    if any(x in path_str for x in ['profile', 'user', 'account', 'avatar']):
+        return 'ProfileService'
+    
+    # Admin related
+    if any(x in path_str for x in ['admin', 'dashboard', 'manage']):
+        return 'AdminConsole'
+    
+    # Analytics/Metrics
+    if any(x in path_str for x in ['analytics', 'metric', 'stat', 'report', 'insight']):
+        return 'AnalyticsEngine'
+    
+    # Config/Settings
+    if any(x in path_str for x in ['config', 'setting', '.env', '.yaml', '.yml', '.json']):
+        return 'ConfigManager'
+    
+    # API/Controller
+    if any(x in path_str for x in ['api', 'controller', 'route', 'endpoint', 'handler']):
+        return 'APIController'
+    
+    # Service layer
+    if any(x in path_str for x in ['service', 'provider', 'manager']):
+        return 'ServiceManager'
+    
+    # Shared/Common utilities
+    if any(x in path_str for x in ['util', 'helper', 'common', 'shared', 'lib', 'core', 'base']):
+        return 'SharedLibrary'
+    
+    # Extract potential module names from path parts
     for path in file_paths:
         parts = path.replace('\\', '/').split('/')
         for part in parts:
@@ -102,23 +154,6 @@ def infer_module_from_path(file_paths: List[str]) -> str:
             for module in KNOWN_MODULES:
                 if module.lower() in part.lower():
                     return module
-    
-    # Default based on path patterns
-    path_str = ' '.join(file_paths).lower()
-    if 'auth' in path_str or 'login' in path_str or 'oauth' in path_str:
-        return 'AuthService'
-    elif 'payment' in path_str or 'billing' in path_str:
-        return 'PaymentGateway'
-    elif 'search' in path_str or 'query' in path_str:
-        return 'SearchEngine'
-    elif 'profile' in path_str or 'user' in path_str:
-        return 'ProfileService'
-    elif 'admin' in path_str:
-        return 'AdminConsole'
-    elif 'analytics' in path_str or 'metric' in path_str:
-        return 'AnalyticsEngine'
-    elif 'config' in path_str or 'setting' in path_str:
-        return 'ConfigManager'
     
     return 'GenericHandler'
 
@@ -233,36 +268,45 @@ def extract_features_from_analysis(
     summary = analysis_data.get('summary', {})
     files = analysis_data.get('files', [])
     
-    # Extract file paths
+    # Extract file paths - these are the ACTUAL files from the commit
     file_paths = [f.get('path', '') for f in files if isinstance(f, dict)]
     
-    # Numerical features
+    print(f"[FEATURE EXTRACT] Analyzing {len(file_paths)} files: {file_paths}")
+    
+    # Numerical features - from ACTUAL commit data
     lines_added = summary.get('lines_added', 0) or 0
     lines_removed = summary.get('lines_removed', 0) or 0
     lines_changed = lines_added + lines_removed
     files_changed = summary.get('files_changed', len(files)) or 0
     
-    # Calculate dependency depth (estimate from file paths)
+    print(f"[FEATURE EXTRACT] Lines: +{lines_added}/-{lines_removed} = {lines_changed} total")
+    print(f"[FEATURE EXTRACT] Files changed: {files_changed}")
+    
+    # Calculate dependency depth from ACTUAL file paths
     max_depth = 0
     for path in file_paths:
         depth = len(path.replace('\\', '/').split('/')) - 1
         max_depth = max(max_depth, depth)
     dependency_depth = min(max_depth, 10)
     
-    # Check for shared components
+    # Check for shared components in ACTUAL file paths
+    shared_keywords = ['shared', 'common', 'util', 'lib', 'core', 'base', 'helper', 'service']
     shared_component = any(
-        x in path.lower() for path in file_paths 
-        for x in ['shared', 'common', 'util', 'lib', 'core', 'base']
+        keyword in path.lower() 
+        for path in file_paths 
+        for keyword in shared_keywords
     )
     
-    # Historical data (use defaults if not provided)
+    print(f"[FEATURE EXTRACT] Dependency depth: {dependency_depth}, Shared component: {shared_component}")
+    
+    # Historical data (use defaults if not provided - this could be improved with DB lookup)
     hist = historical_data or {}
     historical_failure_count = hist.get('failure_count', 5)
     historical_change_frequency = hist.get('change_frequency', 5)
     days_since_last_failure = hist.get('days_since_failure', 180)
     tests_impacted = hist.get('tests_impacted', max(1, files_changed * 3))
     
-    # Infer categorical features
+    # Infer categorical features from ACTUAL file paths
     change_type = infer_change_type(file_paths)
     component_type = infer_component_type(change_type, file_paths)
     module_name = infer_module_from_path(file_paths)
@@ -270,8 +314,11 @@ def extract_features_from_analysis(
     repo_type = infer_repo_type(file_paths, repo_full_name)
     test_coverage_level = estimate_test_coverage(file_paths, tests_impacted)
     
+    print(f"[FEATURE EXTRACT] Inferred - Change type: {change_type}, Component: {component_type}")
+    print(f"[FEATURE EXTRACT] Inferred - Module: {module_name}, Function category: {function_category}")
+    
     return {
-        # Numerical features
+        # Numerical features - from actual commit
         'lines_changed': lines_changed,
         'files_changed': files_changed,
         'dependency_depth': dependency_depth,
@@ -280,7 +327,7 @@ def extract_features_from_analysis(
         'historical_change_frequency': historical_change_frequency,
         'days_since_last_failure': days_since_last_failure,
         'tests_impacted': tests_impacted,
-        # Categorical features
+        # Categorical features - inferred from actual file paths
         'repo_type': repo_type,
         'module_name': module_name,
         'change_type': change_type,
