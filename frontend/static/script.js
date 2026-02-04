@@ -725,7 +725,7 @@ async function connectRepository(repo, branch) {
 
         // Show success notification with webhook status details
         if (connectData.webhook_setup) {
-            showNotification(`Successfully connected ${repo}! Webhook configured.`, 'success');
+            showNotification(`Successfully connected ${repo}! Starting impact analysis...`, 'success');
         } else {
             // Show webhook error detail if available
             const webhookMsg = connectData.webhook_error 
@@ -734,9 +734,9 @@ async function connectRepository(repo, branch) {
             showNotification(`Connected ${repo}. ${webhookMsg}`, 'warning');
         }
 
-        // Redirect to repositories view after short delay
+        // Redirect to impact analysis page with repo parameter for auto-analysis
         setTimeout(() => {
-            window.location.href = 'repo.html';
+            window.location.href = `impact_analysis.html?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&autostart=true`;
         }, 1500);
 
     } catch (error) {
@@ -823,11 +823,11 @@ async function confirmClone() {
             closeCloneModal();
 
             // Show success notification
-            showNotification(`Successfully connected ${repo}! Webhook ${connectData.webhook_setup ? 'configured' : 'needs manual setup'}.`, 'success');
+            showNotification(`Successfully connected ${repo}! Starting impact analysis...`, 'success');
 
-            // Redirect to repositories view after short delay
+            // Redirect to impact analysis page with repo parameter for auto-analysis
             setTimeout(() => {
-                window.location.href = 'repo.html';
+                window.location.href = `impact_analysis.html?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&autostart=true`;
             }, 1500);
 
         } catch (error) {

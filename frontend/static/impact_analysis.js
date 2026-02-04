@@ -1,6 +1,7 @@
 /**
  * ETTA-X Impact Analysis Page
  * JavaScript for ML-powered risk prediction
+ * New 3-column grid layout
  */
 
 // Get API base URL from config
@@ -14,14 +15,20 @@ document.addEventListener('DOMContentLoaded', function () {
     let predictions = [];
     let selectedRepo = null;
     let selectedPrediction = null;
+    let autoStartAnalysis = false;
 
     // ==================== DOM ELEMENTS ====================
-    const repoSelector = document.getElementById('repo-selector');
+    const repoList = document.getElementById('repo-list');
+    const repoCount = document.getElementById('repo-count');
     const refreshBtn = document.getElementById('refresh-btn');
     const searchInput = document.getElementById('search-input');
     const filterSelect = document.getElementById('filter-select');
     const commitList = document.getElementById('commit-list');
     const detailsContent = document.getElementById('details-content');
+    const statsPanel = document.getElementById('stats-panel');
+    const commitPanel = document.getElementById('commit-panel');
+    const detailsPanel = document.getElementById('details-panel');
+    const emptyStatePanel = document.getElementById('empty-state-panel');
 
     // Stats elements
     const statTotal = document.getElementById('stat-total');
@@ -31,30 +38,29 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ==================== INITIALIZATION ====================
     console.log('[Impact Analysis] Initializing...');
-    loadRepositories();
-    initEventListeners();
-
-    // Check for URL parameter to auto-select repository
+    
+    // Check for URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const repoParam = urlParams.get('repo');
+    const branchParam = urlParams.get('branch');
+    autoStartAnalysis = urlParams.get('autostart') === 'true';
+    
     if (repoParam) {
         console.log('[Impact Analysis] Found repo in URL:', repoParam);
         selectedRepo = repoParam;
     }
 
+    loadRepositories();
+    initEventListeners();
+
     // ==================== EVENT LISTENERS ====================
     function initEventListeners() {
-        repoSelector?.addEventListener('change', () => {
-            const fullName = repoSelector.value;
-            if (fullName) {
-                selectedRepo = fullName;
-                loadImpactData(fullName);
-            }
-        });
-
         refreshBtn?.addEventListener('click', () => {
             if (selectedRepo) {
-                loadImpactData(selectedRepo);
+                refreshBtn.classList.add('loading');
+                loadImpactData(selectedRepo).finally(() => {
+                    refreshBtn.classList.remove('loading');
+                });
             }
         });
 
@@ -70,43 +76,99 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (!response.ok) {
                 console.error('[Impact Analysis] Failed to load repositories:', response.status);
+                renderRepoList([]);
                 return;
             }
 
             const data = await response.json();
             repositories = data.repositories || [];
             console.log('[Impact Analysis] Loaded', repositories.length, 'repositories');
-            renderRepoSelector();
+            renderRepoList(repositories);
+
+            // Auto-select from URL parameter
+            if (selectedRepo) {
+                const repo = repositories.find(r => r.full_name === selectedRepo);
+                if (repo) {
+                    selectRepository(repo);
+                }
+            }
 
         } catch (error) {
             console.error('[Impact Analysis] Error loading repositories:', error);
+            renderRepoList([]);
         }
     }
 
-    function renderRepoSelector() {
-        if (!repoSelector) return;
+    // ==================== RENDER REPO LIST ====================
+    function renderRepoList(repos) {
+        if (!repoList) return;
 
-        repoSelector.innerHTML = '<option value="">Select Repository...</option>';
+        if (repoCount) {
+            repoCount.textContent = `${repos.length} repos`;
+        }
 
-        repositories.forEach(repo => {
-            const option = document.createElement('option');
-            option.value = repo.full_name;
-            option.textContent = repo.full_name;
-            repoSelector.appendChild(option);
+        if (repos.length === 0) {
+            repoList.innerHTML = `
+                <div class="empty-state">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <p>No repositories connected</p>
+                    <span class="hint">Connect a repository from the Dashboard</span>
+                </div>
+            `;
+            return;
+        }
+
+        repoList.innerHTML = repos.map(repo => `
+            <div class="repo-item ${repo.full_name === selectedRepo ? 'selected' : ''}" data-repo="${repo.full_name}">
+                <div class="repo-item-header">
+                    <div class="repo-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                    <span class="repo-name">${repo.full_name}</span>
+                </div>
+                <div class="repo-meta">
+                    <span>${repo.branch || 'main'}</span>
+                </div>
+            </div>
+        `).join('');
+
+        // Add click listeners
+        repoList.querySelectorAll('.repo-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const repoName = item.dataset.repo;
+                const repo = repositories.find(r => r.full_name === repoName);
+                if (repo) {
+                    selectRepository(repo);
+                }
+            });
+        });
+    }
+
+    // ==================== SELECT REPOSITORY ====================
+    function selectRepository(repo) {
+        selectedRepo = repo.full_name;
+        
+        // Update URL without reload
+        const newUrl = `${window.location.pathname}?repo=${encodeURIComponent(repo.full_name)}`;
+        window.history.replaceState({}, '', newUrl);
+        
+        // Update UI selection
+        repoList.querySelectorAll('.repo-item').forEach(item => {
+            item.classList.toggle('selected', item.dataset.repo === repo.full_name);
         });
 
-        // Auto-select from URL parameter or first repository
-        if (selectedRepo) {
-            repoSelector.value = selectedRepo;
-            console.log('[Impact Analysis] Auto-selected repo from URL:', selectedRepo);
-            loadImpactData(selectedRepo);
-        } else if (repositories.length > 0) {
-            // Auto-select first repository if none specified
-            selectedRepo = repositories[0].full_name;
-            repoSelector.value = selectedRepo;
-            console.log('[Impact Analysis] Auto-selected first repo:', selectedRepo);
-            loadImpactData(selectedRepo);
-        }
+        // Show panels, hide empty state
+        if (statsPanel) statsPanel.style.display = '';
+        if (commitPanel) commitPanel.style.display = '';
+        if (detailsPanel) detailsPanel.style.display = '';
+        if (emptyStatePanel) emptyStatePanel.classList.add('hidden');
+
+        // Load data
+        loadImpactData(repo.full_name);
     }
 
     // ==================== LOAD IMPACT DATA ====================
@@ -115,11 +177,9 @@ document.addEventListener('DOMContentLoaded', function () {
             // Show loading state
             if (commitList) {
                 commitList.innerHTML = `
-                    <div class="impact-empty-state">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="loading-spinner">
-                            <circle cx="12" cy="12" r="10"></circle>
-                        </svg>
-                        <p>Loading impact analyses...</p>
+                    <div class="loading-state">
+                        <div class="spinner"></div>
+                        <span>Loading impact analyses...</span>
                     </div>
                 `;
             }
@@ -142,9 +202,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 predictions = historyData.predictions || [];
             }
 
-            // If no predictions exist, fetch recent commits and analyze them
-            if (predictions.length === 0) {
-                console.log('[Impact Analysis] No predictions found, fetching commits to analyze...');
+            // If no predictions exist or autostart is true, fetch recent commits and analyze them
+            if (predictions.length === 0 || autoStartAnalysis) {
+                console.log('[Impact Analysis] Analyzing commits...');
+                autoStartAnalysis = false; // Reset flag
                 await analyzeRecentCommits(fullName);
             } else {
                 renderCommitList(predictions);
@@ -154,7 +215,7 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error loading impact data:', error);
             if (commitList) {
                 commitList.innerHTML = `
-                    <div class="impact-empty-state">
+                    <div class="empty-state">
                         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                             <circle cx="12" cy="12" r="10"></circle>
                             <line x1="12" y1="8" x2="12" y2="12"></line>
@@ -174,12 +235,9 @@ document.addEventListener('DOMContentLoaded', function () {
             // Show analyzing state
             if (commitList) {
                 commitList.innerHTML = `
-                    <div class="impact-empty-state">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="loading-spinner">
-                            <circle cx="12" cy="12" r="10"></circle>
-                        </svg>
-                        <p>Analyzing recent commits...</p>
-                        <span class="hint">Running ML predictions</span>
+                    <div class="loading-state">
+                        <div class="spinner"></div>
+                        <span>Analyzing recent commits...</span>
                     </div>
                 `;
             }
@@ -273,11 +331,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!items || items.length === 0) {
             commitList.innerHTML = `
-                <div class="impact-empty-state">
+                <div class="empty-state">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                        <line x1="12" y1="9" x2="12" y2="13"></line>
-                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <line x1="1.05" y1="12" x2="7" y2="12"></line>
+                        <line x1="17.01" y1="12" x2="22.96" y2="12"></line>
                     </svg>
                     <p>No impact analyses found</p>
                     <span class="hint">Commit changes will trigger automatic analysis</span>
@@ -287,7 +345,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         commitList.innerHTML = items.map((p, index) => `
-            <div class="impact-commit-item" data-index="${index}" data-id="${p.id}">
+            <div class="commit-item" data-index="${index}" data-id="${p.id}">
                 <div class="risk-badge ${getRiskClass(p.risk_level)}">
                     ${Math.round(p.risk_score || 0)}
                 </div>
@@ -304,9 +362,9 @@ document.addEventListener('DOMContentLoaded', function () {
         `).join('');
 
         // Add click listeners
-        commitList.querySelectorAll('.impact-commit-item').forEach(item => {
+        commitList.querySelectorAll('.commit-item').forEach(item => {
             item.addEventListener('click', () => {
-                commitList.querySelectorAll('.impact-commit-item').forEach(i => i.classList.remove('active'));
+                commitList.querySelectorAll('.commit-item').forEach(i => i.classList.remove('active'));
                 item.classList.add('active');
 
                 const id = parseInt(item.dataset.id);
@@ -358,87 +416,85 @@ document.addEventListener('DOMContentLoaded', function () {
         const pred = prediction.prediction || {};
 
         detailsContent.innerHTML = `
-            <div class="impact-details-content">
-                <div class="impact-details-header">
-                    <div class="impact-details-title">
-                        <h3>${prediction.commit_sha.substring(0, 10)}...</h3>
-                        <span class="branch">${prediction.branch || 'Unknown branch'}</span>
+            <div class="details-header">
+                <div class="details-title">
+                    <h3>${prediction.commit_sha.substring(0, 10)}...</h3>
+                    <span class="branch">${prediction.branch || 'Unknown branch'}</span>
+                </div>
+                <div class="risk-display">
+                    <div class="risk-circle ${riskClass}">
+                        ${Math.round(pred.risk_score || 0)}
                     </div>
-                    <div class="impact-risk-display">
-                        <div class="impact-risk-circle ${riskClass}">
-                            ${Math.round(pred.risk_score || 0)}
-                        </div>
-                        <span class="risk-level-tag ${riskClass}">${pred.risk_level || 'NONE'}</span>
+                    <span class="risk-level-tag ${riskClass}">${pred.risk_level || 'NONE'}</span>
+                </div>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-item">
+                    <span class="feature-label">Lines Changed</span>
+                    <span class="feature-value">${inputFeatures.lines_changed || 0}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Files Changed</span>
+                    <span class="feature-value">${inputFeatures.files_changed || 0}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Change Type</span>
+                    <span class="feature-value">${inputFeatures.change_type || 'N/A'}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Component Type</span>
+                    <span class="feature-value">${inputFeatures.component_type || 'N/A'}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Module</span>
+                    <span class="feature-value">${inputFeatures.module_name || 'N/A'}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Function Category</span>
+                    <span class="feature-value">${inputFeatures.function_category || 'N/A'}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Test Coverage</span>
+                    <span class="feature-value">${inputFeatures.test_coverage_level || 'N/A'}</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">Shared Component</span>
+                    <span class="feature-value">${inputFeatures.shared_component ? 'Yes' : 'No'}</span>
+                </div>
+            </div>
+            
+            <div class="prediction-section">
+                <h4>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                    ML Prediction
+                </h4>
+                <div class="prediction-grid">
+                    <div class="prediction-item">
+                        <span class="label">Failure Predicted</span>
+                        <span class="value">${pred.failure_occurred ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div class="prediction-item">
+                        <span class="label">Failure Severity</span>
+                        <span class="value">${pred.failure_severity || 'none'}</span>
+                    </div>
+                    <div class="prediction-item">
+                        <span class="label">Risk Score</span>
+                        <span class="value">${Math.round(pred.risk_score || 0)}%</span>
+                    </div>
+                    <div class="prediction-item">
+                        <span class="label">Risk Level</span>
+                        <span class="value">${pred.risk_level || 'NONE'}</span>
                     </div>
                 </div>
-                
-                <div class="impact-features">
-                    <div class="feature-item">
-                        <span class="feature-label">Lines Changed</span>
-                        <span class="feature-value">${inputFeatures.lines_changed || 0}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Files Changed</span>
-                        <span class="feature-value">${inputFeatures.files_changed || 0}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Change Type</span>
-                        <span class="feature-value">${inputFeatures.change_type || 'N/A'}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Component Type</span>
-                        <span class="feature-value">${inputFeatures.component_type || 'N/A'}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Module</span>
-                        <span class="feature-value">${inputFeatures.module_name || 'N/A'}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Function Category</span>
-                        <span class="feature-value">${inputFeatures.function_category || 'N/A'}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Test Coverage</span>
-                        <span class="feature-value">${inputFeatures.test_coverage_level || 'N/A'}</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Shared Component</span>
-                        <span class="feature-value">${inputFeatures.shared_component ? 'Yes' : 'No'}</span>
-                    </div>
-                </div>
-                
-                <div class="impact-prediction">
-                    <h4>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                            <polyline points="2 17 12 22 22 17"></polyline>
-                            <polyline points="2 12 12 17 22 12"></polyline>
-                        </svg>
-                        ML Prediction
-                    </h4>
-                    <div class="prediction-grid">
-                        <div class="prediction-item">
-                            <span class="label">Failure Predicted</span>
-                            <span class="value">${pred.failure_occurred ? 'Yes' : 'No'}</span>
-                        </div>
-                        <div class="prediction-item">
-                            <span class="label">Failure Severity</span>
-                            <span class="value">${pred.failure_severity || 'none'}</span>
-                        </div>
-                        <div class="prediction-item">
-                            <span class="label">Risk Score</span>
-                            <span class="value">${Math.round(pred.risk_score || 0)}%</span>
-                        </div>
-                        <div class="prediction-item">
-                            <span class="label">Risk Level</span>
-                            <span class="value">${pred.risk_level || 'NONE'}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="impact-meta" style="margin-top: 16px; font-size: 12px; color: #6b7280;">
-                    <span>Analyzed: ${formatRelativeTime(prediction.created_at)}</span>
-                </div>
+            </div>
+            
+            <div class="details-meta">
+                <span>Analyzed: ${formatRelativeTime(prediction.created_at)}</span>
             </div>
         `;
     }
@@ -462,5 +518,15 @@ document.addEventListener('DOMContentLoaded', function () {
         if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
 
         return date.toLocaleDateString();
+    }
+
+    // ==================== INITIAL UI STATE ====================
+    // Hide main panels, show empty state if no repo selected
+    if (!selectedRepo) {
+        if (statsPanel) statsPanel.style.display = 'none';
+        if (commitPanel) commitPanel.style.display = 'none';
+        if (emptyStatePanel) emptyStatePanel.classList.remove('hidden');
+    } else {
+        if (emptyStatePanel) emptyStatePanel.classList.add('hidden');
     }
 });
