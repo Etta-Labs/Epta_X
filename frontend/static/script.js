@@ -353,11 +353,19 @@ const settingsDropdown = document.querySelector('.menu-item-dropdown');
 if (settingsToggle) {
     settingsToggle.addEventListener('click', function (e) {
         e.preventDefault();
+        e.stopPropagation();
         if (settingsDropdown) {
             settingsDropdown.classList.toggle('open');
         }
     });
 }
+
+// Close settings dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    if (settingsDropdown && !settingsDropdown.contains(e.target)) {
+        settingsDropdown.classList.remove('open');
+    }
+});
 
 // Protect menu items - require login
 document.querySelectorAll('.menu-item').forEach(item => {
@@ -417,6 +425,48 @@ if (themeToggle) {
 }
 
 // Listen for theme changes from Electron menu
+// Load pipeline statistics for dashboard widgets
+async function loadPipelineStats() {
+    try {
+        const response = await fetch('/api/pipeline/stats', { credentials: 'include' });
+        if (!response.ok) return;
+        
+        const stats = await response.json();
+        
+        // Update dashboard stats widgets
+        const connectedRepos = document.getElementById('connected-repos');
+        const totalAnalyses = document.getElementById('total-analyses');
+        const highRiskChanges = document.getElementById('high-risk-changes');
+        const testsSuggested = document.getElementById('tests-suggested');
+        
+        if (connectedRepos) connectedRepos.textContent = stats.connected_repos || 0;
+        if (totalAnalyses) totalAnalyses.textContent = stats.total_analyses || 0;
+        if (highRiskChanges) highRiskChanges.textContent = stats.high_risk_changes || 0;
+        if (testsSuggested) testsSuggested.textContent = stats.total_analyses || 0;
+        
+        // Update Impact Analysis widget
+        const widgetRiskScore = document.getElementById('widget-risk-score');
+        const widgetRiskLevel = document.getElementById('widget-risk-level');
+        
+        if (stats.latest_analysis) {
+            const score = (stats.latest_analysis.risk_score * 100).toFixed(0);
+            const level = stats.latest_analysis.risk_level;
+            
+            if (widgetRiskScore) {
+                widgetRiskScore.textContent = score;
+            }
+            if (widgetRiskLevel) {
+                widgetRiskLevel.textContent = level;
+                // Add risk level class for color styling
+                widgetRiskLevel.className = 'stat-value risk-' + level.toLowerCase();
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error loading pipeline stats:', error);
+    }
+}
+
 if (window.electronAPI && window.electronAPI.onThemeChanged) {
     window.electronAPI.onThemeChanged((theme) => {
         applyTheme(theme);
@@ -655,6 +705,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     // Load repositories if user is logged in
     if (isLoggedIn) {
         loadUserRepositories();
+        // Load pipeline stats for dashboard widgets
+        loadPipelineStats();
     } else {
         // Disable selectors when not logged in
         if (repoSelect) {

@@ -12,8 +12,11 @@ import os
 import secrets
 import hashlib
 import time
+import json
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -1282,18 +1285,205 @@ async def delete_repository_webhook(owner: str, repo: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== IMPACT ANALYSIS PIPELINE INTEGRATION ====================
+
+def extract_features_from_diff(analysis_result: dict, repo_full_name: str, branch: str, commit_sha: str) -> dict:
+    """
+    Extract ML model features from git diff analysis result.
+    This bridges the Code Change Detection stage to the Impact Analysis Engine.
+    """
+    # Get summary from analysis
+    summary = analysis_result.get('summary', {})
+    changed_files = analysis_result.get('changed_files', [])
+    change_types = analysis_result.get('change_types', [])
+    affected_components = analysis_result.get('affected_components', [])
+    
+    # Calculate lines changed
+    total_lines_added = summary.get('total_lines_added', 0)
+    total_lines_deleted = summary.get('total_lines_deleted', 0)
+    lines_changed = total_lines_added + total_lines_deleted
+    
+    # Files changed
+    files_changed = len(changed_files)
+    
+    # Determine change type from analysis
+    change_type = 'SERVICE_LOGIC_CHANGE'  # default
+    if 'API_CHANGE' in change_types:
+        change_type = 'API_CHANGE'
+    elif 'UI' in change_types or any('html' in f.get('path', '').lower() or 'css' in f.get('path', '').lower() for f in changed_files):
+        change_type = 'UI_CHANGE'
+    elif 'CONFIG' in change_types or any('.json' in f.get('path', '').lower() or '.yaml' in f.get('path', '').lower() for f in changed_files):
+        change_type = 'CONFIG_CHANGE'
+    
+    # Determine component type
+    component_type = 'SERVICE'
+    api_files = [f for f in changed_files if any(x in f.get('path', '').lower() for x in ['/api/', 'routes', 'endpoints', 'controller'])]
+    ui_files = [f for f in changed_files if any(x in f.get('path', '').lower() for x in ['.html', '.css', '.jsx', '.tsx', '/ui/', '/components/'])]
+    if len(api_files) > len(ui_files):
+        component_type = 'API'
+    elif len(ui_files) > 0:
+        component_type = 'UI'
+    
+    # Detect shared components (used by multiple modules)
+    shared_component = 1 if any('shared' in c.lower() or 'common' in c.lower() or 'utils' in c.lower() for c in affected_components) else 0
+    
+    # Estimate dependency depth based on imports/affected components
+    dependency_depth = min(len(affected_components), 5) if affected_components else 1
+    
+    # Determine function category based on file paths and components
+    function_category = 'misc'
+    path_str = ' '.join([f.get('path', '') for f in changed_files]).lower()
+    component_str = ' '.join(affected_components).lower()
+    combined = path_str + ' ' + component_str
+    
+    if any(x in combined for x in ['auth', 'login', 'session', 'token', 'oauth']):
+        function_category = 'auth'
+    elif any(x in combined for x in ['payment', 'billing', 'invoice', 'wallet', 'transaction']):
+        function_category = 'payment'
+    elif any(x in combined for x in ['search', 'query', 'filter', 'index']):
+        function_category = 'search'
+    elif any(x in combined for x in ['profile', 'user', 'account', 'settings']):
+        function_category = 'profile'
+    elif any(x in combined for x in ['analytics', 'metrics', 'tracking', 'report']):
+        function_category = 'analytics'
+    elif any(x in combined for x in ['admin', 'console', 'manage', 'dashboard']):
+        function_category = 'admin'
+    
+    # Determine module name from affected components or file paths
+    module_name = 'CoreModule'
+    if affected_components:
+        # Try to match against known modules
+        for component in affected_components:
+            if component in REQUIRED_CATEGORICAL_FEATURES.get('module_name', []):
+                module_name = component
+                break
+    
+    # Estimate test coverage level (default to medium)
+    test_coverage_level = 'medium'
+    test_files = [f for f in changed_files if 'test' in f.get('path', '').lower()]
+    if len(test_files) > files_changed * 0.3:
+        test_coverage_level = 'high'
+    elif len(test_files) == 0 and files_changed > 3:
+        test_coverage_level = 'low'
+    
+    # Get repo type (default to monolith, could be enhanced with repo analysis)
+    repo_type = 'monolith'
+    if 'microservice' in repo_full_name.lower() or 'service' in repo_full_name.lower():
+        repo_type = 'microservices'
+    
+    # Build feature dict matching ImpactAnalysisRequest
+    return {
+        'lines_changed': lines_changed,
+        'files_changed': files_changed,
+        'dependency_depth': dependency_depth,
+        'shared_component': shared_component,
+        'historical_failure_count': 0,  # Would need historical data
+        'historical_change_frequency': 1,  # Would need historical data
+        'days_since_last_failure': 30,  # Would need historical data
+        'tests_impacted': len(test_files),
+        'repo_type': repo_type,
+        'module_name': module_name,
+        'change_type': change_type,
+        'component_type': component_type,
+        'function_category': function_category,
+        'test_coverage_level': test_coverage_level,
+        'repository': repo_full_name,
+        'branch': branch,
+        'commit_id': commit_sha,
+        'files_list': [f.get('path', '') for f in changed_files]
+    }
+
+
+def run_impact_analysis_from_features(features: dict) -> dict:
+    """
+    Run ML-based impact analysis using extracted features.
+    Returns impact analysis result dict.
+    """
+    global _impact_model, _model_features, _model_threshold
+    
+    # Load model if needed
+    model = load_impact_model()
+    
+    # Create request object
+    request = ImpactAnalysisRequest(**{k: v for k, v in features.items() if k in ImpactAnalysisRequest.__fields__})
+    
+    if model is None:
+        # Fallback to rule-based analysis
+        risk_score = calculate_rule_based_risk(request)
+    else:
+        # Prepare input for ML model
+        X = prepare_model_input(request)
+        # Get probability prediction
+        risk_score = float(model.predict_proba(X)[0, 1])
+    
+    # Determine risk level and color
+    if risk_score >= 0.7:
+        risk_level = "High"
+        risk_color = "red"
+    elif risk_score >= 0.4:
+        risk_level = "Medium"
+        risk_color = "amber"
+    else:
+        risk_level = "Low"
+        risk_color = "green"
+    
+    # Get recommended action
+    recommended_action, justification = get_recommended_action(risk_score, request)
+    
+    # Get impact factors
+    impact_factors = get_top_impact_factors(request, risk_score)
+    
+    # Calculate affected surface
+    apis_impacted = 0
+    ui_components_impacted = 0
+    if features.get('files_list'):
+        for file in features['files_list']:
+            file_lower = file.lower()
+            if any(x in file_lower for x in ['/api/', 'routes', 'endpoints', 'controller']):
+                apis_impacted += 1
+            if any(x in file_lower for x in ['.html', '.css', '.jsx', '.tsx', '/ui/', '/components/']):
+                ui_components_impacted += 1
+    
+    return {
+        'repository': features.get('repository'),
+        'branch': features.get('branch'),
+        'commit_id': features.get('commit_id'),
+        'files_changed': features.get('files_changed', 0),
+        'lines_changed': features.get('lines_changed', 0),
+        'change_category': features.get('change_type', 'SERVICE_LOGIC_CHANGE'),
+        'risk_score': round(risk_score, 4),
+        'risk_level': risk_level,
+        'risk_color': risk_color,
+        'apis_impacted': apis_impacted,
+        'ui_components_impacted': ui_components_impacted,
+        'dependency_depth': features.get('dependency_depth', 1),
+        'tests_impacted': features.get('tests_impacted', 0),
+        'recommended_action': recommended_action,
+        'action_justification': justification,
+        'top_impact_factors': impact_factors,
+        'test_selection_status': 'suggested',
+        'ci_execution_state': 'Pending'
+    }
+
+
 # ==================== BACKGROUND PROCESSING ====================
 
 async def process_webhook_event_background(event_id: int, event_data: dict):
     """
     Background task to process a webhook event.
-    Runs asynchronously after the webhook response is sent.
+    
+    PIPELINE FLOW:
+    1. Clone/pull repository
+    2. Run git diff analysis (Code Change Detection)
+    3. Extract features from diff
+    4. Run ML Impact Analysis
+    5. Store combined results
     """
     import json
     import asyncio
     
     try:
-        print(f"[Background] Processing webhook event {event_id}...")
+        print(f"[Pipeline] ========== Processing webhook event {event_id} ==========")
         
         repo_full_name = event_data.get('repository_full_name')
         before_sha = event_data.get('before_sha')
@@ -1301,7 +1491,7 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
         branch = event_data.get('branch')
         
         if not repo_full_name or not after_sha:
-            print(f"[Background] Missing required data for event {event_id}")
+            print(f"[Pipeline] Missing required data for event {event_id}")
             return
         
         owner, repo_name = repo_full_name.split('/')
@@ -1309,7 +1499,7 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
         # Get a valid token from the database for this repo
         repo = get_repository_by_full_name(repo_full_name)
         if not repo:
-            print(f"[Background] Repository not found: {repo_full_name}")
+            print(f"[Pipeline] Repository not found: {repo_full_name}")
             return
         
         # Get user's token from user_sessions (joined via repositories)
@@ -1327,41 +1517,69 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
                 token = row['github_access_token']
         
         if not token:
-            print(f"[Background] No access token found for repo {repo_full_name}")
+            print(f"[Pipeline] No access token found for repo {repo_full_name}")
             return
         
-        # Clone or pull the repository
+        # STEP 1: Clone or pull the repository
+        print(f"[Pipeline] Step 1: Cloning/pulling repository...")
         local_path = await clone_or_pull_repo(owner, repo_name, token, branch)
         
-        # Run diff analysis
+        # STEP 2: Run git diff + AST analysis (Code Change Detection)
+        print(f"[Pipeline] Step 2: Running git diff and AST analysis...")
         analysis_result = None
+        impact_result = None
+        
         if before_sha and after_sha and before_sha != '0' * 40:
             try:
                 analysis_result = analyze_commits(local_path, before_sha, after_sha)
-                print(f"[Background] Analysis complete for event {event_id}")
+                print(f"[Pipeline] Git diff analysis complete for event {event_id}")
+                
+                # STEP 3: Extract features from diff
+                print(f"[Pipeline] Step 3: Extracting ML features from analysis...")
+                features = extract_features_from_diff(analysis_result, repo_full_name, branch, after_sha)
+                print(f"[Pipeline] Extracted features: {features.get('files_changed')} files, {features.get('lines_changed')} lines")
+                
+                # STEP 4: Run ML Impact Analysis
+                print(f"[Pipeline] Step 4: Running ML Impact Analysis...")
+                impact_result = run_impact_analysis_from_features(features)
+                print(f"[Pipeline] Impact Analysis complete - Risk: {impact_result.get('risk_score')} ({impact_result.get('risk_level')})")
+                
             except Exception as e:
-                print(f"[Background] Diff analysis error for event {event_id}: {e}")
+                print(f"[Pipeline] Analysis error for event {event_id}: {e}")
+                import traceback
+                traceback.print_exc()
                 analysis_result = {"error": str(e)}
         else:
-            # New branch or initial push - analyze the latest commit
-            print(f"[Background] Skipping diff (new branch or initial push) for event {event_id}")
+            # New branch or initial push
+            print(f"[Pipeline] Skipping diff (new branch or initial push) for event {event_id}")
             analysis_result = {
                 "note": "Initial push or new branch - no prior commit to compare",
                 "files": [],
                 "logical_changes": {}
             }
         
-        # Mark as processed with results
-        result_json = json.dumps(analysis_result) if analysis_result else None
+        # Combine results
+        combined_result = {
+            "diff_analysis": analysis_result,
+            "impact_analysis": impact_result,
+            "pipeline_status": "completed",
+            "processed_at": datetime.now().isoformat()
+        }
+        
+        # STEP 5: Mark as processed with results
+        result_json = json.dumps(combined_result)
         mark_webhook_event_processed(event_id, result_json)
-        print(f"[Background] Event {event_id} marked as processed")
+        print(f"[Pipeline] ========== Event {event_id} processing complete ==========")
         
     except Exception as e:
         import traceback
-        print(f"[Background] Error processing event {event_id}: {e}")
+        print(f"[Pipeline] Error processing event {event_id}: {e}")
         traceback.print_exc()
         # Mark as processed with error to prevent infinite retries
-        mark_webhook_event_processed(event_id, json.dumps({"error": str(e)}))
+        mark_webhook_event_processed(event_id, json.dumps({
+            "error": str(e),
+            "pipeline_status": "failed"
+        }))
 
 
 # ==================== WEBHOOK RECEIVER ENDPOINT ====================
@@ -1972,13 +2190,16 @@ async def get_repository_analysis(full_name: str, request: Request, event_id: Op
                 }
             }
         
+        # Handle both old format (direct) and new format (nested under diff_analysis)
+        diff_data = latest_analysis.get('diff_analysis', latest_analysis)
+        
         # Transform the analysis data to match our data contract
         # The analyzer returns 'changed_files', map to 'files' for frontend
-        files = latest_analysis.get('changed_files', latest_analysis.get('files', []))
-        logical = latest_analysis.get('logical_changes', {})
+        files = diff_data.get('changed_files', diff_data.get('files', []))
+        logical = diff_data.get('logical_changes', {})
         
         # Also get summary from analyzer if available
-        analyzer_summary = latest_analysis.get('summary', {})
+        analyzer_summary = diff_data.get('summary', {})
         
         # Calculate additions/deletions from line_ranges
         # Each range has start/end - count actual lines, not just number of ranges
@@ -2116,3 +2337,724 @@ async def get_repository_events(full_name: str, request: Request, limit: int = 2
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== IMPACT ANALYSIS ML MODEL ====================
+
+import pickle
+import numpy as np
+import pandas as pd
+
+# Load ML model configuration - Model is in backend/model/ folder
+MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'model', 'impact_analysis_model.pkl')
+MODEL_FEATURES_PATH = os.path.join(os.path.dirname(__file__), '../../..', 'Z_Data_set', 'model_features.json')
+
+_impact_model = None
+_model_features = None
+_model_threshold = 0.5
+
+
+def load_impact_model():
+    """Load the impact analysis ML model from backend/model/impact_analysis_model.pkl"""
+    global _impact_model, _model_features, _model_threshold
+    
+    if _impact_model is not None:
+        return _impact_model
+    
+    try:
+        # Load model from pkl file - it contains model, feature_names, threshold
+        model_path = os.path.abspath(MODEL_PATH)
+        print(f"[Impact Analysis] Looking for model at: {model_path}")
+        
+        if os.path.exists(model_path):
+            with open(model_path, 'rb') as f:
+                model_package = pickle.load(f)
+                _impact_model = model_package.get('model')
+                _model_features = model_package.get('feature_names', [])
+                _model_threshold = model_package.get('threshold', 0.5)
+                print(f"[Impact Analysis] Model loaded successfully!")
+                print(f"[Impact Analysis] Model type: {model_package.get('model_type')}")
+                print(f"[Impact Analysis] Features: {len(_model_features)}")
+                print(f"[Impact Analysis] Threshold: {_model_threshold}")
+        else:
+            print(f"[Impact Analysis] WARNING: Model file not found at {model_path}")
+            # Fallback to JSON features file if model not found
+            features_path = os.path.abspath(MODEL_FEATURES_PATH)
+            if os.path.exists(features_path):
+                with open(features_path, 'r') as f:
+                    features_data = json.load(f)
+                    _model_features = features_data.get('feature_names', [])
+                    _model_threshold = features_data.get('threshold', 0.5)
+                    print(f"[Impact Analysis] Features loaded from JSON: {len(_model_features)}")
+        
+        return _impact_model
+    except Exception as e:
+        print(f"[Impact Analysis] Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+# Required input features for impact analysis
+REQUIRED_NUMERICAL_FEATURES = [
+    'lines_changed',
+    'files_changed', 
+    'dependency_depth',
+    'shared_component',  # 0 or 1
+    'historical_failure_count',
+    'historical_change_frequency',
+    'days_since_last_failure',
+    'tests_impacted'
+]
+
+REQUIRED_CATEGORICAL_FEATURES = {
+    'repo_type': ['monolith', 'microservices'],
+    'module_name': [
+        'AdminConsole', 'AnalyticsEngine', 'AuditLogger', 'AuthService', 'AutocompleteHandler',
+        'AvatarHandler', 'BaseController', 'BillingService', 'CacheManager', 'CommonUtils',
+        'ConfigManager', 'CoreModule', 'CredentialStore', 'DashboardService', 'DataAggregator',
+        'DataExporter', 'EventTracker', 'FacetProcessor', 'FeatureFlagService', 'FilterService',
+        'GenericHandler', 'HelperFunctions', 'IndexManager', 'InsightsProcessor', 'InvoiceGenerator',
+        'LoginHandler', 'MaintenanceHandler', 'MetricsCollector', 'NotificationPrefs', 'OAuthProvider',
+        'PaymentGateway', 'PayoutController', 'PermissionValidator', 'PrivacyController', 'ProfileService',
+        'ProfileValidator', 'QueryOptimizer', 'RankingAlgorithm', 'RefundHandler', 'ReportGenerator',
+        'RoleController', 'SearchEngine', 'SessionController', 'SharedLibrary', 'SubscriptionManager',
+        'SupportService', 'SystemMonitor', 'TokenManager', 'TransactionProcessor', 'TrendAnalyzer',
+        'UserAuthenticator', 'UserManager', 'UserPreferences', 'UtilityService', 'WalletService'
+    ],
+    'change_type': ['API_CHANGE', 'UI_CHANGE', 'SERVICE_LOGIC_CHANGE', 'CONFIG_CHANGE'],
+    'component_type': ['API', 'UI', 'SERVICE'],
+    'function_category': ['auth', 'payment', 'search', 'profile', 'analytics', 'admin', 'misc'],
+    'test_coverage_level': ['low', 'medium', 'high']
+}
+
+
+class ImpactAnalysisRequest(BaseModel):
+    """Request model for impact analysis"""
+    # Required numerical features
+    lines_changed: int
+    files_changed: int
+    dependency_depth: int = 1
+    shared_component: int = 0  # 0 or 1
+    historical_failure_count: int = 0
+    historical_change_frequency: int = 1
+    days_since_last_failure: int = 30
+    tests_impacted: int = 0
+    
+    # Required categorical features
+    repo_type: str = "monolith"
+    module_name: str = "CoreModule"
+    change_type: str = "SERVICE_LOGIC_CHANGE"
+    component_type: str = "SERVICE"
+    function_category: str = "misc"
+    test_coverage_level: str = "medium"
+    
+    # Optional context
+    repository: Optional[str] = None
+    branch: Optional[str] = None
+    commit_id: Optional[str] = None
+    files_list: Optional[List[str]] = None
+
+
+class ImpactAnalysisResponse(BaseModel):
+    """Response model for impact analysis"""
+    # Change Scope Summary
+    repository: Optional[str] = None
+    branch: Optional[str] = None
+    commit_id: Optional[str] = None
+    files_changed: int
+    lines_changed: int
+    change_category: str
+    
+    # Impact Analysis Result (Core)
+    risk_score: float  # 0.0 - 1.0
+    risk_level: str  # Low / Medium / High
+    risk_color: str  # green / amber / red
+    
+    # Affected Surface
+    apis_impacted: int
+    ui_components_impacted: int
+    dependency_depth: int
+    tests_impacted: int
+    
+    # Recommended Action
+    recommended_action: str
+    action_justification: str
+    
+    # Explainability
+    top_impact_factors: List[str]
+    
+    # Pipeline Status
+    test_selection_status: str  # suggested / pending
+    ci_execution_state: str  # Pending / Running / Completed
+
+
+def prepare_model_input(request: ImpactAnalysisRequest) -> pd.DataFrame:
+    """Prepare input features for the ML model"""
+    global _model_features
+    
+    if not _model_features:
+        load_impact_model()
+    
+    # Create base numerical features
+    data = {
+        'lines_changed': request.lines_changed,
+        'files_changed': request.files_changed,
+        'dependency_depth': request.dependency_depth,
+        'shared_component': request.shared_component,
+        'historical_failure_count': request.historical_failure_count,
+        'historical_change_frequency': request.historical_change_frequency,
+        'days_since_last_failure': request.days_since_last_failure,
+        'tests_impacted': request.tests_impacted
+    }
+    
+    # Create one-hot encoded categorical features
+    # Initialize all categorical feature columns to 0
+    for feature in _model_features:
+        if feature not in data:
+            data[feature] = 0
+    
+    # Set the appropriate categorical columns to 1
+    # repo_type (drop_first means 'microservices' is reference)
+    if request.repo_type == 'monolith':
+        data['repo_type_monolith'] = 1
+    
+    # module_name (first module is reference, dropped)
+    module_col = f'module_name_{request.module_name}'
+    if module_col in data:
+        data[module_col] = 1
+    
+    # change_type (API_CHANGE is reference, dropped)
+    change_col = f'change_type_{request.change_type}'
+    if change_col in data:
+        data[change_col] = 1
+    
+    # component_type (API is reference, dropped)
+    component_col = f'component_type_{request.component_type}'
+    if component_col in data:
+        data[component_col] = 1
+    
+    # function_category (admin is reference, dropped)
+    func_col = f'function_category_{request.function_category}'
+    if func_col in data:
+        data[func_col] = 1
+    
+    # test_coverage_level (high is reference, dropped)
+    coverage_col = f'test_coverage_level_{request.test_coverage_level}'
+    if coverage_col in data:
+        data[coverage_col] = 1
+    
+    # Create DataFrame with correct column order
+    df = pd.DataFrame([data])
+    
+    # Ensure all model features are present in correct order
+    for feature in _model_features:
+        if feature not in df.columns:
+            df[feature] = 0
+    
+    return df[_model_features]
+
+
+def get_top_impact_factors(request: ImpactAnalysisRequest, risk_score: float) -> List[str]:
+    """Generate human-readable impact factors"""
+    factors = []
+    
+    if request.shared_component == 1:
+        factors.append("Shared component modified")
+    
+    if request.historical_failure_count > 5:
+        factors.append("High historical failure rate")
+    elif request.historical_failure_count > 2:
+        factors.append("Moderate historical failure rate")
+    
+    if request.dependency_depth > 3:
+        factors.append(f"Deep dependency chain (depth: {request.dependency_depth})")
+    
+    if request.lines_changed > 500:
+        factors.append("Large code change volume")
+    elif request.lines_changed > 100:
+        factors.append("Moderate code change volume")
+    
+    if request.files_changed > 10:
+        factors.append("Many files affected")
+    
+    if request.test_coverage_level == 'low':
+        factors.append("Low test coverage area")
+    
+    if request.change_type == 'API_CHANGE':
+        factors.append("API contract modification")
+    
+    if request.function_category in ['auth', 'payment']:
+        factors.append(f"Critical function area ({request.function_category})")
+    
+    if request.days_since_last_failure < 7:
+        factors.append("Recent failures in this area")
+    
+    if request.historical_change_frequency > 10:
+        factors.append("High change frequency area")
+    
+    # Return top 5 factors
+    return factors[:5] if factors else ["Standard code modification"]
+
+
+def get_recommended_action(risk_score: float, request: ImpactAnalysisRequest) -> tuple:
+    """Generate recommended action and justification"""
+    if risk_score >= 0.7:
+        action = "Run full regression tests"
+        justification = f"High risk score ({risk_score:.2f}) detected due to changes in critical areas. Full regression recommended to ensure system stability."
+    elif risk_score >= 0.4:
+        action = "Run targeted tests + integration tests"
+        justification = f"Moderate risk ({risk_score:.2f}) suggests running tests for affected modules and their integrations."
+    else:
+        action = "Run targeted tests only"
+        justification = f"Low risk ({risk_score:.2f}) indicates isolated changes. Standard unit and targeted tests should suffice."
+    
+    # Add specific recommendations based on change type
+    if request.change_type == 'API_CHANGE':
+        action += " + API contract tests"
+    elif request.change_type == 'UI_CHANGE':
+        action += " + UI regression tests"
+    
+    return action, justification
+
+
+@app.post("/api/impact-analysis", response_model=ImpactAnalysisResponse)
+async def run_impact_analysis(request_body: ImpactAnalysisRequest, request: Request):
+    """
+    Run ML-based impact analysis on code changes.
+    
+    This endpoint receives change metrics and returns:
+    - Risk score (0.0 - 1.0)
+    - Risk level (Low/Medium/High)
+    - Recommended actions
+    - Impact factors
+    
+    Used by AI Test Case Generator and Test Prioritization systems.
+    """
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        # Load model if not loaded
+        model = load_impact_model()
+        
+        if model is None:
+            # Fallback to rule-based analysis if model not available
+            risk_score = calculate_rule_based_risk(request_body)
+        else:
+            # Prepare input for ML model
+            X = prepare_model_input(request_body)
+            
+            # Get probability prediction
+            risk_score = float(model.predict_proba(X)[0, 1])
+        
+        # Determine risk level and color
+        if risk_score >= 0.7:
+            risk_level = "High"
+            risk_color = "red"
+        elif risk_score >= 0.4:
+            risk_level = "Medium"
+            risk_color = "amber"
+        else:
+            risk_level = "Low"
+            risk_color = "green"
+        
+        # Get recommended action
+        recommended_action, justification = get_recommended_action(risk_score, request_body)
+        
+        # Get impact factors
+        impact_factors = get_top_impact_factors(request_body, risk_score)
+        
+        # Calculate affected surface
+        apis_impacted = 0
+        ui_components_impacted = 0
+        
+        if request_body.files_list:
+            for file in request_body.files_list:
+                file_lower = file.lower()
+                if any(x in file_lower for x in ['/api/', 'routes', 'endpoints', 'controller']):
+                    apis_impacted += 1
+                if any(x in file_lower for x in ['.html', '.css', '.jsx', '.tsx', '/ui/', '/components/']):
+                    ui_components_impacted += 1
+        else:
+            # Estimate based on change type
+            if request_body.change_type == 'API_CHANGE':
+                apis_impacted = max(1, request_body.files_changed // 3)
+            if request_body.change_type == 'UI_CHANGE':
+                ui_components_impacted = max(1, request_body.files_changed // 2)
+        
+        return ImpactAnalysisResponse(
+            repository=request_body.repository,
+            branch=request_body.branch,
+            commit_id=request_body.commit_id,
+            files_changed=request_body.files_changed,
+            lines_changed=request_body.lines_changed,
+            change_category=request_body.change_type,
+            risk_score=round(risk_score, 4),
+            risk_level=risk_level,
+            risk_color=risk_color,
+            apis_impacted=apis_impacted,
+            ui_components_impacted=ui_components_impacted,
+            dependency_depth=request_body.dependency_depth,
+            tests_impacted=request_body.tests_impacted,
+            recommended_action=recommended_action,
+            action_justification=justification,
+            top_impact_factors=impact_factors,
+            test_selection_status="suggested",
+            ci_execution_state="Pending"
+        )
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Impact analysis error: {str(e)}")
+
+
+def calculate_rule_based_risk(request: ImpactAnalysisRequest) -> float:
+    """Fallback rule-based risk calculation when ML model is unavailable"""
+    risk = 0.0
+    
+    # Lines changed factor (0-0.2)
+    if request.lines_changed > 500:
+        risk += 0.2
+    elif request.lines_changed > 200:
+        risk += 0.15
+    elif request.lines_changed > 50:
+        risk += 0.1
+    else:
+        risk += 0.05
+    
+    # Files changed factor (0-0.15)
+    if request.files_changed > 20:
+        risk += 0.15
+    elif request.files_changed > 10:
+        risk += 0.1
+    elif request.files_changed > 5:
+        risk += 0.08
+    else:
+        risk += 0.03
+    
+    # Dependency depth factor (0-0.15)
+    risk += min(request.dependency_depth * 0.03, 0.15)
+    
+    # Shared component factor (0-0.1)
+    if request.shared_component:
+        risk += 0.1
+    
+    # Historical failure factor (0-0.15)
+    risk += min(request.historical_failure_count * 0.015, 0.15)
+    
+    # Test coverage factor (0-0.1)
+    if request.test_coverage_level == 'low':
+        risk += 0.1
+    elif request.test_coverage_level == 'medium':
+        risk += 0.05
+    
+    # Change type factor (0-0.1)
+    if request.change_type == 'API_CHANGE':
+        risk += 0.1
+    elif request.change_type == 'SERVICE_LOGIC_CHANGE':
+        risk += 0.08
+    elif request.change_type == 'UI_CHANGE':
+        risk += 0.05
+    else:
+        risk += 0.03
+    
+    # Function category factor (0-0.1)
+    if request.function_category in ['auth', 'payment']:
+        risk += 0.1
+    elif request.function_category in ['profile', 'admin']:
+        risk += 0.05
+    
+    return min(risk, 1.0)
+
+
+@app.get("/api/impact-analysis/features")
+async def get_impact_analysis_features(request: Request):
+    """
+    Get the required input features for impact analysis.
+    Useful for UI forms and validation.
+    """
+    return {
+        "numerical_features": REQUIRED_NUMERICAL_FEATURES,
+        "categorical_features": REQUIRED_CATEGORICAL_FEATURES,
+        "model_loaded": _impact_model is not None,
+        "threshold": _model_threshold
+    }
+
+
+@app.get("/api/impact-analysis/from-event/{event_id}")
+async def run_impact_analysis_from_event(event_id: int, request: Request):
+    """
+    Run impact analysis using data from a processed webhook event.
+    Automatically extracts features from the diff analysis.
+    """
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    import json
+    
+    try:
+        # Get the event from database
+        event = None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+            row = cursor.fetchone()
+            if row:
+                event = dict(row)
+        
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        if not event.get('processed') or not event.get('processing_result'):
+            raise HTTPException(status_code=400, detail="Event not yet processed. Please wait for diff analysis to complete.")
+        
+        # Parse the analysis result
+        analysis = json.loads(event['processing_result'])
+        
+        # Extract features from analysis
+        files = analysis.get('changed_files', analysis.get('files', []))
+        logical_changes = analysis.get('logical_changes', {})
+        
+        # Calculate lines changed
+        total_lines = 0
+        for f in files:
+            total_lines += f.get('additions', 0) + f.get('deletions', 0)
+            # Also count from line_ranges if available
+            for r in f.get('line_ranges', []):
+                total_lines += (r.get('end', r.get('start', 0)) - r.get('start', 0) + 1)
+        
+        # Determine change type
+        change_type = 'SERVICE_LOGIC_CHANGE'
+        component_type = 'SERVICE'
+        
+        api_files = 0
+        ui_files = 0
+        config_files = 0
+        
+        for f in files:
+            path = f.get('path', '').lower()
+            if any(x in path for x in ['/api/', 'routes', 'endpoints', 'controller']):
+                api_files += 1
+            if any(x in path for x in ['.html', '.css', '.jsx', '.tsx', '/ui/', '/components/']):
+                ui_files += 1
+            if any(x in path for x in ['config', '.json', '.yaml', '.yml', '.env']):
+                config_files += 1
+        
+        if api_files > len(files) // 2:
+            change_type = 'API_CHANGE'
+            component_type = 'API'
+        elif ui_files > len(files) // 2:
+            change_type = 'UI_CHANGE'
+            component_type = 'UI'
+        elif config_files > len(files) // 2:
+            change_type = 'CONFIG_CHANGE'
+        
+        # Build impact analysis request
+        impact_request = ImpactAnalysisRequest(
+            lines_changed=max(total_lines, 1),
+            files_changed=len(files),
+            dependency_depth=1,  # Could be calculated from imports
+            shared_component=1 if any('shared' in f.get('path', '').lower() for f in files) else 0,
+            historical_failure_count=0,  # Would need historical data
+            historical_change_frequency=1,
+            days_since_last_failure=30,
+            tests_impacted=len([f for f in files if 'test' in f.get('path', '').lower()]),
+            repo_type='monolith',
+            module_name='CoreModule',
+            change_type=change_type,
+            component_type=component_type,
+            function_category='misc',
+            test_coverage_level='medium',
+            repository=event.get('repository_full_name'),
+            branch=event.get('branch'),
+            commit_id=event.get('commit_sha'),
+            files_list=[f.get('path') for f in files]
+        )
+        
+        # Run impact analysis
+        return await run_impact_analysis(impact_request, request)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PIPELINE RESULTS API ====================
+
+@app.get("/api/pipeline/recent")
+async def get_recent_pipeline_results(request: Request, repository: Optional[str] = None, limit: int = 10):
+    """
+    Get recent pipeline results (git diff + impact analysis) for dashboard display.
+    Returns processed webhook events with their impact analysis results.
+    """
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    import json
+    
+    try:
+        events = get_recent_webhook_events(repository, min(limit, 50))
+        
+        results = []
+        for event in events:
+            if event.get('processed') and event.get('processing_result'):
+                try:
+                    result_data = json.loads(event['processing_result'])
+                    impact = result_data.get('impact_analysis')
+                    
+                    results.append({
+                        "event_id": event['id'],
+                        "repository": event['repository_full_name'],
+                        "branch": event.get('branch'),
+                        "commit_sha": event.get('commit_sha'),
+                        "event_type": event['event_type'],
+                        "processed_at": event.get('processed_at'),
+                        "created_at": event.get('created_at'),
+                        "pipeline_status": result_data.get('pipeline_status', 'unknown'),
+                        "impact_analysis": impact,
+                        "has_error": 'error' in result_data
+                    })
+                except:
+                    pass
+        
+        return {
+            "results": results,
+            "count": len(results)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/pipeline/stats")
+async def get_pipeline_stats(request: Request):
+    """
+    Get pipeline statistics for dashboard widgets.
+    """
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    import json
+    
+    try:
+        # Get recent events
+        events = get_recent_webhook_events(None, 100)
+        
+        total_analyses = 0
+        high_risk_count = 0
+        medium_risk_count = 0
+        low_risk_count = 0
+        latest_analysis = None
+        
+        for event in events:
+            if event.get('processed') and event.get('processing_result'):
+                try:
+                    result_data = json.loads(event['processing_result'])
+                    impact = result_data.get('impact_analysis')
+                    
+                    if impact:
+                        total_analyses += 1
+                        risk_level = impact.get('risk_level', '').lower()
+                        
+                        if risk_level == 'high':
+                            high_risk_count += 1
+                        elif risk_level == 'medium':
+                            medium_risk_count += 1
+                        elif risk_level == 'low':
+                            low_risk_count += 1
+                        
+                        if latest_analysis is None:
+                            latest_analysis = impact
+                except:
+                    pass
+        
+        # Get connected repos count
+        repos_count = 0
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as count FROM repositories")
+            row = cursor.fetchone()
+            if row:
+                repos_count = row['count']
+        
+        return {
+            "connected_repos": repos_count,
+            "total_analyses": total_analyses,
+            "high_risk_changes": high_risk_count,
+            "medium_risk_changes": medium_risk_count,
+            "low_risk_changes": low_risk_count,
+            "latest_analysis": latest_analysis
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/pipeline/event/{event_id}")
+async def get_pipeline_event_detail(event_id: int, request: Request):
+    """
+    Get detailed pipeline result for a specific event.
+    """
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    import json
+    
+    try:
+        event = None
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+            row = cursor.fetchone()
+            if row:
+                event = dict(row)
+        
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        result_data = None
+        if event.get('processing_result'):
+            try:
+                result_data = json.loads(event['processing_result'])
+            except:
+                result_data = {"raw": event['processing_result']}
+        
+        return {
+            "event_id": event['id'],
+            "repository": event['repository_full_name'],
+            "branch": event.get('branch'),
+            "commit_sha": event.get('commit_sha'),
+            "event_type": event['event_type'],
+            "processed": bool(event.get('processed')),
+            "processed_at": event.get('processed_at'),
+            "created_at": event.get('created_at'),
+            "diff_analysis": result_data.get('diff_analysis') if result_data else None,
+            "impact_analysis": result_data.get('impact_analysis') if result_data else None,
+            "pipeline_status": result_data.get('pipeline_status') if result_data else 'pending'
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/impact-analysis", response_class=HTMLResponse)
+async def impact_analysis_page():
+    """Serve the impact analysis page"""
+    return FileResponse("frontend/pages/impact_analysis.html")

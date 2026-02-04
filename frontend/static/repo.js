@@ -45,12 +45,22 @@ document.addEventListener('DOMContentLoaded', function () {
         if (savedTheme === 'dark') {
             document.body.classList.add('dark-theme');
         }
+        updateLogo();
     }
 
     function toggleTheme() {
         document.body.classList.toggle('dark-theme');
         const isDark = document.body.classList.contains('dark-theme');
         localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        updateLogo();
+    }
+
+    function updateLogo() {
+        const logo = document.getElementById('logo-img');
+        if (logo) {
+            const isDark = document.body.classList.contains('dark-theme');
+            logo.src = isDark ? '/static/assets/logo_bg.png' : '/static/assets/logo_bg_bl.png';
+        }
     }
 
     // Make toggleTheme globally available
@@ -77,8 +87,17 @@ document.addEventListener('DOMContentLoaded', function () {
         // Settings dropdown
         settingsToggle?.addEventListener('click', (e) => {
             e.preventDefault();
-            const dropdown = document.querySelector('.menu-item-dropdown');
+            e.stopPropagation();
+            const dropdown = settingsToggle.closest('.menu-item-dropdown');
             dropdown?.classList.toggle('open');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const dropdown = document.querySelector('.menu-item-dropdown');
+            if (dropdown && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('open');
+            }
         });
     }
 
@@ -96,11 +115,14 @@ document.addEventListener('DOMContentLoaded', function () {
             diffPanelTitle.textContent = view === 'raw' ? 'Changed Files' : 'Logical Changes';
         }
 
-        // Toggle panels
-        if (selectedRepo && currentAnalysis) {
-            diffPanel.style.display = view === 'raw' ? 'flex' : 'none';
-            logicalPanel.style.display = view === 'logical' ? 'flex' : 'none';
-            logicalPanel.classList.toggle('active', view === 'logical');
+        // Toggle panels - always update if panels exist (even before repo selection)
+        if (diffPanel && logicalPanel) {
+            // Only show panels if a repo is selected and has analysis data
+            if (selectedRepo && currentAnalysis) {
+                diffPanel.style.display = view === 'raw' ? 'flex' : 'none';
+                logicalPanel.style.display = view === 'logical' ? 'flex' : 'none';
+                logicalPanel.classList.toggle('active', view === 'logical');
+            }
         }
     }
 

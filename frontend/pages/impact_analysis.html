@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETTA-X - Impact Analysis</title>
+    <!-- Apply theme immediately to prevent white flash -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark-theme');
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.body.classList.add('dark-theme');
+                });
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="/static/stlye.css">
+    <link rel="stylesheet" href="/static/impact_analysis.css">
+    <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
+    <style>
+        /* Apply dark theme to html element for early rendering */
+        html.dark-theme body {
+            background-color: #121212;
+        }
+    </style>
+</head>
+
+<body style="padding-top: 32px;">
+
+    <!-- Custom Title Bar for Electron -->
+    <div id="titlebar" class="titlebar">
+        <div class="titlebar-left">
+            <div class="menu-dropdown" id="file-menu">
+                <button class="menu-btn">File</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.reload()">Reload</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.clearCache()">Clear Cache & Reset</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.quit()">Exit</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="view-menu">
+                <button class="menu-btn">View</button>
+                <div class="menu-content">
+                    <a href="#" onclick="toggleTheme && toggleTheme()">Toggle Theme</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.zoomIn()">Zoom In</a>
+                    <a href="#" onclick="window.electronAPI?.zoomOut()">Zoom Out</a>
+                    <a href="#" onclick="window.electronAPI?.resetZoom()">Reset Zoom</a>
+                    <div class="menu-divider"></div>
+                    <a href="#" onclick="window.electronAPI?.toggleFullscreen()">Toggle Fullscreen</a>
+                </div>
+            </div>
+            <div class="menu-dropdown" id="help-menu">
+                <button class="menu-btn">Help</button>
+                <div class="menu-content">
+                    <a href="#" onclick="window.electronAPI?.showAbout()">About ETTA-X</a>
+                    <a href="#" onclick="window.electronAPI?.toggleDevTools()">Developer Tools</a>
+                </div>
+            </div>
+        </div>
+        <div class="titlebar-center">
+            <span class="titlebar-title">ETTA-X</span>
+        </div>
+        <div class="titlebar-right">
+            <button class="window-btn" id="minimize-btn" onclick="window.electronAPI?.minimize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="5.5" width="8" height="1" fill="currentColor" />
+                </svg>
+            </button>
+            <button class="window-btn" id="maximize-btn" onclick="window.electronAPI?.maximize()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2" y="2" width="8" height="8" stroke="currentColor" fill="none" stroke-width="1" />
+                </svg>
+            </button>
+            <button class="window-btn close-btn" id="close-btn" onclick="window.electronAPI?.close()">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Top Bar -->
+    <header class="top-bar">
+        <div class="header-left">
+            <div class="logo">
+                <img src="/static/assets/logo_bg_bl.png" alt="ETTA-X Logo" width="32" height="32" id="logo-img">
+                <span>ETTA-X</span>
+            </div>
+            <span class="separator">|</span>
+            <span class="platform-description">Impact Analysis</span>
+        </div>
+        <div class="header-spacer"></div>
+        <div class="header-right">
+            <div class="profile">
+                <div class="profile-dropdown-container">
+                    <img src="/static/assets/profile.png" alt="Profile" class="profile-icon" id="profile-toggle"
+                        width="40" height="40">
+                    <div class="profile-dropdown" id="profile-dropdown" style="display: none;">
+                        <div class="logged-in-view" id="logged-in-view" style="display: none;">
+                            <div class="profile-info">
+                                <img src="/static/assets/profile.png" alt="Profile" class="profile-dropdown-avatar"
+                                    id="profile-avatar" width="40" height="40">
+                                <div class="profile-details">
+                                    <span class="profile-name" id="profile-name">User</span>
+                                    <span class="profile-username" id="profile-username">@username</span>
+                                </div>
+                            </div>
+                            <div class="profile-dropdown-divider"></div>
+                            <a href="/auth/github/logout" class="profile-dropdown-item logout-item">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                    <polyline points="16 17 21 12 16 7" />
+                                    <line x1="21" y1="12" x2="9" y2="12" />
+                                </svg>
+                                <span>Logout</span>
+                            </a>
+                        </div>
+                        <div class="logged-out-view" id="logged-out-view">
+                            <div class="profile-info">
+                                <img src="/static/assets/profile.png" alt="Profile" class="profile-dropdown-avatar" width="40" height="40">
+                                <div class="profile-details">
+                                    <span class="profile-name">Guest</span>
+                                    <span class="profile-username">Not signed in</span>
+                                </div>
+                            </div>
+                            <div class="profile-dropdown-divider"></div>
+                            <a href="#" class="profile-dropdown-item login-item" id="dropdown-login-btn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                                    <polyline points="10 17 15 12 10 7" />
+                                    <line x1="15" y1="12" x2="3" y2="12" />
+                                </svg>
+                                <span>Sign in with GitHub</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <nav class="menu">
+            <a href="/dashboard" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                </svg>
+                <span>Dashboard</span>
+            </a>
+            <a href="/impact-analysis" class="menu-item active">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 16v-4"/>
+                    <path d="M12 8h.01"/>
+                </svg>
+                <span>Impact Analysis</span>
+            </a>
+            <a href="#" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9 12l2 2 4-4" />
+                </svg>
+                <span>Test Runs</span>
+            </a>
+            <a href="#" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <span>Failures</span>
+            </a>
+            <a href="#" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                <span>Self-Healing</span>
+            </a>
+            <a href="/repo" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    <line x1="12" y1="11" x2="12" y2="17"></line>
+                    <line x1="9" y1="14" x2="15" y2="14"></line>
+                </svg>
+                <span>Repositories</span>
+            </a>
+            <div class="menu-item-dropdown">
+                <a href="#" class="menu-item" id="settings-toggle">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <line x1="9" y1="9" x2="15" y2="9" />
+                        <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                    <span>Settings</span>
+                    <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                </a>
+                <div class="dropdown-menu" id="settings-dropdown">
+                    <a href="#" class="dropdown-item" id="theme-toggle">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="5" />
+                            <line x1="12" y1="1" x2="12" y2="3" />
+                            <line x1="12" y1="21" x2="12" y2="23" />
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                            <line x1="1" y1="12" x2="3" y2="12" />
+                            <line x1="21" y1="12" x2="23" y2="12" />
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                        </svg>
+                        <span>Switch Theme</span>
+                    </a>
+                    <a href="/auth/github/logout" class="dropdown-item logout-item" id="settings-logout-item">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                            <polyline points="16 17 21 12 16 7" />
+                            <line x1="21" y1="12" x2="9" y2="12" />
+                        </svg>
+                        <span>Logout</span>
+                    </a>
+                </div>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="impact-analysis-container">
+            <!-- Page Header with Stats -->
+            <div class="page-header-section">
+                <div class="page-title-row">
+                    <div class="page-title">
+                        <h1>Impact Analysis</h1>
+                        <p class="page-description">Automated risk analysis triggered on every commit via webhook pipeline</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn-refresh" id="refresh-btn" title="Refresh Results">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"/>
+                                <polyline points="1 20 1 14 7 14"/>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            </svg>
+                            <span>Refresh</span>
+                        </button>
+                        <div class="auto-refresh-indicator" id="auto-refresh-indicator">
+                            <span class="pulse-dot"></span>
+                            <span>Live updates</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pipeline Stats Cards -->
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <div class="stat-icon total">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-total">0</span>
+                            <span class="stat-label">Total Analyses</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon high-risk">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-high-risk">0</span>
+                            <span class="stat-label">High Risk</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon medium-risk">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 8v4"/>
+                                <path d="M12 16h.01"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-medium-risk">0</span>
+                            <span class="stat-label">Medium Risk</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon low-risk">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-low-risk">0</span>
+                            <span class="stat-label">Low Risk</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Layout: List + Detail -->
+            <div class="analysis-layout">
+                <!-- Left Panel: Results List -->
+                <div class="results-list-panel">
+                    <!-- Filter Bar -->
+                    <div class="filter-bar">
+                        <div class="filter-group">
+                            <select id="filter-risk" class="filter-select">
+                                <option value="all">All Risk Levels</option>
+                                <option value="high">High Risk</option>
+                                <option value="medium">Medium Risk</option>
+                                <option value="low">Low Risk</option>
+                            </select>
+                            <select id="filter-repo" class="filter-select">
+                                <option value="all">All Repositories</option>
+                            </select>
+                        </div>
+                        <div class="filter-search">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            </svg>
+                            <input type="text" id="filter-search" placeholder="Search commits, repos...">
+                        </div>
+                    </div>
+
+                    <!-- Results List -->
+                    <div class="results-list" id="results-list">
+                        <div class="loading-state" id="loading-state">
+                            <div class="spinner"></div>
+                            <span>Loading pipeline results...</span>
+                        </div>
+                        <div class="empty-state" id="empty-state" style="display: none;">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                            </svg>
+                            <h3>No Impact Analysis Results</h3>
+                            <p>Results will appear here automatically when commits trigger the webhook pipeline.</p>
+                            <div class="empty-state-info">
+                                <div class="info-item">
+                                    <span class="info-number">1</span>
+                                    <span>Connect a repository in the Repositories page</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-number">2</span>
+                                    <span>Configure the webhook on GitHub</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-number">3</span>
+                                    <span>Push commits to trigger analysis</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Results will be dynamically inserted here -->
+                    </div>
+                </div>
+
+                <!-- Right Panel: Detail View -->
+                <div class="detail-panel" id="detail-panel">
+                    <div class="detail-placeholder" id="detail-placeholder">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                        <h3>Select an Analysis Result</h3>
+                        <p>Click on an item from the list to view detailed impact analysis</p>
+                    </div>
+
+                    <div class="detail-content" id="detail-content" style="display: none;">
+                        <!-- Risk Score Header -->
+                        <div class="detail-header">
+                            <div class="risk-score-circle" id="detail-risk-circle">
+                                <span class="risk-value" id="detail-risk-value">--</span>
+                                <span class="risk-label">Risk Score</span>
+                            </div>
+                            <div class="detail-meta">
+                                <h2 id="detail-repo-name">Repository Name</h2>
+                                <div class="meta-row">
+                                    <span class="meta-item" id="detail-commit">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="4"/>
+                                            <line x1="1.05" y1="12" x2="7" y2="12"/>
+                                            <line x1="17.01" y1="12" x2="22.96" y2="12"/>
+                                        </svg>
+                                        <span>commit-hash</span>
+                                    </span>
+                                    <span class="meta-item" id="detail-branch">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <line x1="6" y1="3" x2="6" y2="15"/>
+                                            <circle cx="18" cy="6" r="3"/>
+                                            <circle cx="6" cy="18" r="3"/>
+                                            <path d="M18 9a9 9 0 0 1-9 9"/>
+                                        </svg>
+                                        <span>main</span>
+                                    </span>
+                                    <span class="meta-item" id="detail-time">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <polyline points="12 6 12 12 16 14"/>
+                                        </svg>
+                                        <span>Just now</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Risk Level Badge -->
+                        <div class="detail-risk-badge" id="detail-risk-badge">
+                            <span class="badge-text">Risk Level</span>
+                        </div>
+
+                        <!-- Change Summary -->
+                        <div class="detail-section">
+                            <h3>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                Change Summary
+                            </h3>
+                            <div class="summary-grid" id="detail-summary">
+                                <div class="summary-item">
+                                    <span class="summary-label">Files Changed</span>
+                                    <span class="summary-value" id="detail-files">0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Lines Changed</span>
+                                    <span class="summary-value" id="detail-lines">0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Change Type</span>
+                                    <span class="summary-value" id="detail-change-type">--</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Component</span>
+                                    <span class="summary-value" id="detail-component">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recommended Action -->
+                        <div class="detail-section action-section">
+                            <h3>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                                Recommended Action
+                            </h3>
+                            <div class="action-box" id="detail-action">
+                                <div class="action-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                        <polyline points="22 4 12 14.01 9 11.01"/>
+                                    </svg>
+                                </div>
+                                <div class="action-text" id="detail-action-text">Loading...</div>
+                            </div>
+                        </div>
+
+                        <!-- Affected Scope -->
+                        <div class="detail-section">
+                            <h3>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                    <line x1="3" y1="9" x2="21" y2="9"/>
+                                    <line x1="9" y1="21" x2="9" y2="9"/>
+                                </svg>
+                                Affected Scope
+                            </h3>
+                            <div class="scope-items" id="detail-scope">
+                                <p class="no-scope">No specific scope detected</p>
+                            </div>
+                        </div>
+
+                        <!-- Pipeline Info -->
+                        <div class="detail-section">
+                            <h3>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="22" y1="12" x2="2" y2="12"/>
+                                    <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+                                </svg>
+                                Pipeline Info
+                            </h3>
+                            <div class="pipeline-info" id="detail-pipeline">
+                                <div class="pipeline-item">
+                                    <span class="pipeline-label">Event Type</span>
+                                    <span class="pipeline-value" id="detail-event-type">push</span>
+                                </div>
+                                <div class="pipeline-item">
+                                    <span class="pipeline-label">Triggered By</span>
+                                    <span class="pipeline-value" id="detail-author">--</span>
+                                </div>
+                                <div class="pipeline-item">
+                                    <span class="pipeline-label">Analysis Time</span>
+                                    <span class="pipeline-value" id="detail-analysis-time">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <style>
+        /* Title Bar Styles */
+        .titlebar {
+            display: flex;
+            align-items: center;
+            height: 32px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            -webkit-app-region: drag;
+            user-select: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+        }
+
+        .titlebar-left {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            -webkit-app-region: no-drag;
+            padding-left: 8px;
+        }
+
+        .titlebar-center {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .titlebar-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            letter-spacing: 0.5px;
+        }
+
+        .titlebar-right {
+            display: flex;
+            height: 100%;
+            -webkit-app-region: no-drag;
+        }
+
+        .menu-dropdown { position: relative; height: 100%; }
+        .menu-btn {
+            height: 100%;
+            padding: 0 12px;
+            background: transparent;
+            border: none;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .menu-btn:hover { background-color: rgba(0, 0, 0, 0.06); }
+        .menu-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 180px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+            padding: 4px 0;
+            z-index: 10000;
+        }
+        .menu-dropdown:hover .menu-content,
+        .menu-dropdown.active .menu-content { display: block; }
+        .menu-content a {
+            display: block;
+            padding: 8px 16px;
+            color: #374151;
+            text-decoration: none;
+            font-size: 13px;
+            transition: background-color 0.15s;
+        }
+        .menu-content a:hover { background-color: #f3f4f6; }
+        .menu-divider { height: 1px; background: #e5e7eb; margin: 4px 0; }
+        .window-btn {
+            width: 46px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .window-btn:hover { background-color: rgba(0, 0, 0, 0.06); }
+        .window-btn.close-btn:hover { background-color: #e81123; color: white; }
+
+        /* Dark Theme Title Bar */
+        body.dark-theme .titlebar { background-color: #1e1e1e; border-bottom-color: #333333; }
+        body.dark-theme .titlebar-title { color: #e5e5e5; }
+        body.dark-theme .menu-btn { color: #cccccc; }
+        body.dark-theme .menu-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
+        body.dark-theme .menu-content { background: #2d2d2d; border-color: #404040; }
+        body.dark-theme .menu-content a { color: #cccccc; }
+        body.dark-theme .menu-content a:hover { background-color: #3d3d3d; }
+        body.dark-theme .menu-divider { background: #404040; }
+        body.dark-theme .window-btn { color: #cccccc; }
+        body.dark-theme .window-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
+    </style>
+
+    <script>
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.menu-dropdown')) {
+                document.querySelectorAll('.menu-dropdown').forEach(d => d.classList.remove('active'));
+            }
+        });
+        document.querySelectorAll('.menu-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dropdown = btn.parentElement;
+                const isActive = dropdown.classList.contains('active');
+                document.querySelectorAll('.menu-dropdown').forEach(d => d.classList.remove('active'));
+                if (!isActive) dropdown.classList.add('active');
+            });
+        });
+    </script>
+
+    <script src="/static/impact_analysis.js"></script>
+</body>
+
+</html>

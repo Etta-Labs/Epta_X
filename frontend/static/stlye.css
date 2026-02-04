@@ -11,6 +11,11 @@ body {
     overflow: hidden;
 }
 
+/* Early dark theme support - applied via html element to prevent flash */
+html.dark-theme body {
+    background-color: #121212;
+}
+
 /* Top Bar */
 .top-bar {
     position: fixed;

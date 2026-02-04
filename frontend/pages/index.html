@@ -759,6 +759,14 @@
                 </svg>
                 <span>Dashboard</span>
             </a>
+            <a href="/impact-analysis" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 16v-4"/>
+                    <path d="M12 8h.01"/>
+                </svg>
+                <span>Impact Analysis</span>
+            </a>
             <a href="#" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10" />
@@ -833,9 +841,401 @@
         </nav>
     </aside>
 
-    <!-- Main Content Area (Empty) -->
+    <!-- Main Content Area -->
     <main class="main-content">
+        <!-- Dashboard Widgets -->
+        <div class="dashboard-widgets">
+            <!-- Quick Stats Widget (First - spans full width on top) -->
+            <div class="widget-card stats-widget full-width">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="20" x2="18" y2="10"/>
+                            <line x1="12" y1="20" x2="12" y2="4"/>
+                            <line x1="6" y1="20" x2="6" y2="14"/>
+                        </svg>
+                        <h3>Quick Stats</h3>
+                    </div>
+                </div>
+                <div class="widget-body">
+                    <div class="stats-grid four-cols">
+                        <div class="stat-item">
+                            <span class="stat-number" id="connected-repos">0</span>
+                            <span class="stat-title">Repositories</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number" id="total-analyses">0</span>
+                            <span class="stat-title">Analyses Run</span>
+                        </div>
+                        <div class="stat-item high-risk">
+                            <span class="stat-number" id="high-risk-changes">0</span>
+                            <span class="stat-title">High Risk</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number" id="tests-suggested">0</span>
+                            <span class="stat-title">Tests Suggested</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Impact Analysis Widget -->
+            <div class="widget-card impact-analysis-widget" id="impact-analysis-widget">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 16v-4"/>
+                            <path d="M12 8h.01"/>
+                        </svg>
+                        <h3>Impact Analysis</h3>
+                    </div>
+                    <a href="/impact-analysis" class="widget-action">View All →</a>
+                </div>
+                <div class="widget-body">
+                    <div class="impact-widget-content">
+                        <div class="pipeline-status-banner" id="pipeline-status-banner">
+                            <div class="status-indicator active"></div>
+                            <span>Automated Pipeline Active</span>
+                        </div>
+                        <div class="impact-summary">
+                            <div class="impact-stat">
+                                <span class="stat-value" id="widget-risk-score">--</span>
+                                <span class="stat-label">Latest Risk Score</span>
+                            </div>
+                            <div class="impact-stat">
+                                <span class="stat-value" id="widget-risk-level">--</span>
+                                <span class="stat-label">Risk Level</span>
+                            </div>
+                        </div>
+                        <div class="impact-info">
+                            <p class="widget-description">Analysis runs automatically on every commit via webhook triggers.</p>
+                        </div>
+                        <a href="/impact-analysis" class="widget-btn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                            View Results
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity Widget -->
+            <div class="widget-card recent-activity-widget">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                        <h3>Recent Activity</h3>
+                    </div>
+                </div>
+                <div class="widget-body">
+                    <div class="activity-list" id="recent-activity">
+                        <p class="placeholder-text">Connect a repository to see activity</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
+
+    <style>
+        /* Dashboard Widget Styles */
+        .dashboard-widgets {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            padding: 24px 0;
+        }
+
+        .widget-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .widget-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .widget-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .widget-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .widget-title h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .widget-title svg {
+            color: #6b7280;
+        }
+
+        .widget-action {
+            font-size: 13px;
+            font-weight: 500;
+            color: #3B82F6;
+            text-decoration: none;
+        }
+
+        .widget-action:hover {
+            text-decoration: underline;
+        }
+
+        .widget-body {
+            padding: 20px;
+        }
+
+        /* Impact Analysis Widget */
+        .impact-widget-content {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .pipeline-status-banner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #059669;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+        }
+
+        .status-indicator.active {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.9); }
+        }
+
+        .impact-summary {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .impact-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border-radius: 10px;
+        }
+
+        .impact-stat .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .impact-stat .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .impact-info {
+            text-align: center;
+        }
+
+        .widget-description {
+            font-size: 14px;
+            color: #6b7280;
+            margin: 0;
+        }
+
+        .widget-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #3B82F6;
+            color: #ffffff;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            width: 100%;
+        }
+
+        .widget-btn:hover {
+            background: #2563EB;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Recent Activity Widget */
+        .activity-list {
+            min-height: 100px;
+        }
+
+        .placeholder-text {
+            color: #9ca3af;
+            font-style: italic;
+            font-size: 14px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* Stats Widget */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .stats-grid.four-cols {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        @media (max-width: 900px) {
+            .stats-grid.four-cols {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .dashboard-widgets {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px;
+            background: #f9fafb;
+            border-radius: 10px;
+        }
+
+        .stat-item.high-risk {
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+        }
+
+        .stat-item.high-risk .stat-number {
+            color: #dc2626;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .stat-title {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        /* Risk level colors */
+        .stat-value.risk-high {
+            color: #dc2626;
+        }
+
+        .stat-value.risk-medium {
+            color: #f59e0b;
+        }
+
+        .stat-value.risk-low {
+            color: #10b981;
+        }
+
+        /* Dark Theme Widgets */
+        body.dark-theme .widget-card {
+            background: #1e1e1e;
+            border-color: #333333;
+        }
+
+        body.dark-theme .widget-header {
+            background: #252525;
+            border-color: #333333;
+        }
+
+        body.dark-theme .widget-title h3 {
+            color: #f3f4f6;
+        }
+
+        body.dark-theme .widget-title svg {
+            color: #9ca3af;
+        }
+
+        body.dark-theme .widget-action {
+            color: #60a5fa;
+        }
+
+        body.dark-theme .pipeline-status-banner {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.15) 100%);
+            color: #34d399;
+        }
+
+        body.dark-theme .impact-stat {
+            background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%);
+        }
+
+        body.dark-theme .impact-stat .stat-value {
+            color: #f3f4f6;
+        }
+
+        body.dark-theme .impact-stat .stat-label {
+            color: #9ca3af;
+        }
+
+        body.dark-theme .widget-description {
+            color: #9ca3af;
+        }
+
+        body.dark-theme .stat-item {
+            background: #252525;
+        }
+
+        body.dark-theme .stat-item.high-risk {
+            background: linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(220, 38, 38, 0.15) 100%);
+        }
+
+        body.dark-theme .stat-number {
+            color: #f3f4f6;
+        }
+    </style>
+        }
+
+        body.dark-theme .stat-title {
+            color: #9ca3af;
+        }
+
+        body.dark-theme .placeholder-text {
+            color: #6b7280;
+        }
+    </style>
 
     <!-- Login Modal (placed at end for proper z-index stacking in Electron) -->
     <div class="login-modal-overlay" id="login-modal">

@@ -5,9 +5,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ETTA-X - Repositories View</title>
+    <!-- Apply theme immediately to prevent white flash -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark-theme');
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.body.classList.add('dark-theme');
+                });
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="/static/stlye.css">
     <link rel="stylesheet" href="/static/repo.css">
     <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
+    <style>
+        /* Apply dark theme to html element for early rendering */
+        html.dark-theme body {
+            background-color: #121212;
+        }
+    </style>
 </head>
 
 <body style="padding-top: 32px;">
@@ -334,6 +352,14 @@
                     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                 </svg>
                 <span>Dashboard</span>
+            </a>
+            <a href="/impact-analysis" class="menu-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 16v-4"/>
+                    <path d="M12 8h.01"/>
+                </svg>
+                <span>Impact Analysis</span>
             </a>
             <a href="#" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
