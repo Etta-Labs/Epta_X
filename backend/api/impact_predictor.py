@@ -125,26 +125,30 @@ def infer_module_from_path(file_paths: List[str]) -> str:
 
 def infer_function_category(module_name: str, file_paths: List[str]) -> str:
     """Infer function category from module name and file paths."""
-    module_lower = module_name.lower()
+    module_lower = module_name.lower() if module_name else ''
     
-    # Auth related
-    if any(x in module_lower for x in ['auth', 'login', 'oauth', 'credential', 'token', 'session', 'permission']):
-        return 'auth'
-    # Payment related
-    elif any(x in module_lower for x in ['payment', 'billing', 'subscription', 'transaction', 'wallet', 'payout', 'refund', 'invoice']):
+    # Also check file paths for category hints
+    path_str = ' '.join(file_paths).lower() if file_paths else ''
+    combined = module_lower + ' ' + path_str
+    
+    # Payment related - CRITICAL (check first for priority)
+    if any(x in combined for x in ['payment', 'billing', 'subscription', 'transaction', 'wallet', 'payout', 'refund', 'invoice', 'stripe', 'paypal', 'gateway', 'checkout']):
         return 'payment'
+    # Auth related - CRITICAL
+    elif any(x in combined for x in ['auth', 'login', 'oauth', 'credential', 'token', 'session', 'permission', 'security', 'crypto']):
+        return 'auth'
+    # Admin related
+    elif any(x in combined for x in ['admin', 'role', 'audit', 'maintenance', 'feature', 'config', 'system', 'monitor', 'setting']):
+        return 'admin'
     # Search related
-    elif any(x in module_lower for x in ['search', 'query', 'filter', 'ranking', 'autocomplete', 'facet', 'index', 'cache']):
+    elif any(x in combined for x in ['search', 'query', 'filter', 'ranking', 'autocomplete', 'facet', 'index']):
         return 'search'
     # Profile related
-    elif any(x in module_lower for x in ['profile', 'avatar', 'user', 'notification', 'privacy', 'account', 'data']):
+    elif any(x in combined for x in ['profile', 'avatar', 'user', 'notification', 'privacy', 'account']):
         return 'profile'
     # Analytics related
-    elif any(x in module_lower for x in ['analytics', 'metric', 'insight', 'trend', 'dashboard', 'report', 'event']):
+    elif any(x in combined for x in ['analytics', 'metric', 'insight', 'trend', 'dashboard', 'report', 'event']):
         return 'analytics'
-    # Admin related
-    elif any(x in module_lower for x in ['admin', 'role', 'audit', 'maintenance', 'feature', 'config', 'system', 'monitor']):
-        return 'admin'
     
     return 'misc'
 
@@ -404,44 +408,75 @@ def calculate_risk_score(failure_occurred: int, failure_severity: str, features:
     test_coverage_level = features.get('test_coverage_level', 'medium')
     change_type = features.get('change_type', '')
     component_type = features.get('component_type', '')
+    function_category = features.get('function_category', 'misc')
+    module_name = features.get('module_name', '')
     
     if failure_occurred == 0:
         # No failure predicted - calculate risk based on features
-        base_score = 10
+        base_score = 5
         
-        # Lines changed impact (0-20 points)
-        if lines_changed > 1000:
+        # Lines changed impact (0-25 points) - More aggressive scaling
+        if lines_changed > 800:
+            base_score += 25
+        elif lines_changed > 400:
             base_score += 20
-        elif lines_changed > 500:
-            base_score += 15
         elif lines_changed > 200:
+            base_score += 15
+        elif lines_changed > 100:
             base_score += 10
         elif lines_changed > 50:
             base_score += 5
         
-        # Files changed impact (0-15 points)
-        if files_changed > 20:
-            base_score += 15
+        # Files changed impact (0-20 points) - More aggressive
+        if files_changed > 15:
+            base_score += 20
         elif files_changed > 10:
-            base_score += 10
+            base_score += 15
         elif files_changed > 5:
+            base_score += 10
+        elif files_changed > 2:
             base_score += 5
         
-        # Shared component (0-10 points)
+        # Shared component (0-15 points) - CRITICAL
         if shared_component:
-            base_score += 10
+            base_score += 15
         
         # Dependency depth (0-10 points)
         if dependency_depth > 5:
             base_score += 10
         elif dependency_depth > 3:
+            base_score += 7
+        elif dependency_depth > 1:
+            base_score += 3
+        
+        # Function category risk (0-20 points) - CRITICAL for payment/auth
+        if function_category == 'payment':
+            base_score += 20
+        elif function_category == 'auth':
+            base_score += 18
+        elif function_category == 'admin':
+            base_score += 12
+        elif function_category == 'profile':
+            base_score += 8
+        elif function_category == 'search':
             base_score += 5
+        
+        # Module name risk - check for critical modules
+        module_lower = module_name.lower() if module_name else ''
+        if any(x in module_lower for x in ['payment', 'gateway', 'billing', 'transaction', 'wallet']):
+            base_score += 15
+        elif any(x in module_lower for x in ['security', 'crypto', 'credential', 'token']):
+            base_score += 12
+        elif any(x in module_lower for x in ['database', 'cache', 'core', 'base']):
+            base_score += 10
         
         # Historical failures (0-10 points)
         if historical_failure_count > 50:
             base_score += 10
         elif historical_failure_count > 20:
-            base_score += 5
+            base_score += 7
+        elif historical_failure_count > 10:
+            base_score += 4
         
         # Recent failures (0-10 points)
         if days_since_last_failure < 7:
@@ -455,24 +490,24 @@ def calculate_risk_score(failure_occurred: int, failure_severity: str, features:
         elif test_coverage_level == 'medium':
             base_score += 3
         
-        # Change type risk (0-10 points)
+        # Change type risk (0-12 points)
         if change_type == 'API_CHANGE':
-            base_score += 8
-        elif change_type == 'SERVICE_LOGIC_CHANGE':
-            base_score += 5
+            base_score += 12
         elif change_type == 'CONFIG_CHANGE':
-            base_score += 7
+            base_score += 10
+        elif change_type == 'SERVICE_LOGIC_CHANGE':
+            base_score += 6
         
     else:
         # Failure predicted
         if failure_severity == 'low':
-            base_score = 40
+            base_score = 45
         elif failure_severity == 'medium':
-            base_score = 65
+            base_score = 70
         elif failure_severity == 'high':
-            base_score = 85
+            base_score = 88
         else:
-            base_score = 35
+            base_score = 40
         
         # Additional adjustments for failure cases
         if test_coverage_level == 'low':
@@ -480,9 +515,11 @@ def calculate_risk_score(failure_occurred: int, failure_severity: str, features:
         if historical_failure_count > 50:
             base_score += 5
         if shared_component:
-            base_score += 3
+            base_score += 5
         if lines_changed > 500:
-            base_score += 3
+            base_score += 4
+        if function_category in ['payment', 'auth']:
+            base_score += 5
     
     return min(max(base_score, 5), 100)
 
@@ -515,7 +552,7 @@ def get_risk_level(failure_severity: str, failure_occurred: int = 0, risk_score:
 def calculate_fallback_prediction(features: Dict, error: str = '') -> Dict[str, Any]:
     """Calculate a fallback prediction when the model fails."""
     # Use heuristics based on features
-    risk_score = 20  # Base low risk
+    risk_score = 10  # Base score
     
     lines = features.get('lines_changed', 0)
     files = features.get('files_changed', 0)
@@ -523,44 +560,82 @@ def calculate_fallback_prediction(features: Dict, error: str = '') -> Dict[str, 
     hist_failures = features.get('historical_failure_count', 0)
     coverage = features.get('test_coverage_level', 'medium')
     change_type = features.get('change_type', '')
+    function_category = features.get('function_category', 'misc')
+    module_name = features.get('module_name', '')
+    dependency_depth = features.get('dependency_depth', 0)
     
-    # Increase risk for large changes
-    if lines > 1000:
-        risk_score += 25
-    elif lines > 500:
+    # Increase risk for large changes (0-30 points)
+    if lines > 800:
+        risk_score += 30
+    elif lines > 400:
+        risk_score += 22
+    elif lines > 200:
         risk_score += 15
     elif lines > 100:
+        risk_score += 10
+    elif lines > 50:
         risk_score += 5
     
-    # Increase risk for many files
-    if files > 20:
-        risk_score += 15
+    # Increase risk for many files (0-20 points)
+    if files > 15:
+        risk_score += 20
     elif files > 10:
+        risk_score += 15
+    elif files > 5:
+        risk_score += 10
+    elif files > 2:
+        risk_score += 5
+    
+    # Shared components are riskier (0-15 points)
+    if shared:
+        risk_score += 15
+    
+    # Function category risk (0-20 points) - CRITICAL
+    if function_category == 'payment':
+        risk_score += 20
+    elif function_category == 'auth':
+        risk_score += 18
+    elif function_category == 'admin':
+        risk_score += 12
+    elif function_category == 'profile':
+        risk_score += 6
+    
+    # Module name risk
+    module_lower = module_name.lower() if module_name else ''
+    if any(x in module_lower for x in ['payment', 'gateway', 'billing', 'transaction', 'wallet']):
+        risk_score += 15
+    elif any(x in module_lower for x in ['security', 'crypto', 'credential']):
+        risk_score += 12
+    elif any(x in module_lower for x in ['database', 'cache', 'core', 'base']):
         risk_score += 8
     
-    # Shared components are riskier
-    if shared:
+    # Dependency depth (0-10 points)
+    if dependency_depth > 4:
         risk_score += 10
-    
-    # Historical failures matter
-    if hist_failures > 100:
-        risk_score += 15
-    elif hist_failures > 50:
-        risk_score += 10
-    elif hist_failures > 20:
+    elif dependency_depth > 2:
         risk_score += 5
     
-    # Low test coverage is risky
+    # Historical failures matter (0-12 points)
+    if hist_failures > 100:
+        risk_score += 12
+    elif hist_failures > 50:
+        risk_score += 8
+    elif hist_failures > 20:
+        risk_score += 4
+    
+    # Low test coverage is risky (0-10 points)
     if coverage == 'low':
         risk_score += 10
     elif coverage == 'high':
         risk_score -= 5
     
-    # API changes are riskier
+    # Change type risk (0-12 points)
     if change_type == 'API_CHANGE':
-        risk_score += 5
+        risk_score += 12
     elif change_type == 'CONFIG_CHANGE':
-        risk_score += 8
+        risk_score += 10
+    elif change_type == 'SERVICE_LOGIC_CHANGE':
+        risk_score += 5
     
     # Cap the score
     risk_score = min(max(risk_score, 5), 95)
