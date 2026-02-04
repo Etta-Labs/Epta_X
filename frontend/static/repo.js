@@ -230,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Hide empty state, show panels
         emptyStatePanel.classList.add('hidden');
         summaryPanel.style.display = 'block';
-        
+
         if (currentView === 'raw') {
             diffPanel.style.display = 'flex';
             logicalPanel.style.display = 'none';
@@ -245,48 +245,48 @@ document.addEventListener('DOMContentLoaded', function () {
             loadRepositoryAnalysis(fullName),
             loadCommitHistory(fullName)
         ]);
-        
+
         // Start polling for updates
         startPolling(fullName);
     }
 
     async function loadCommitHistory(fullName) {
         if (!historyList) return;
-        
+
         historyList.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>Loading commits...</span></div>';
-        
+
         try {
             // Fetch actual Git commits from GitHub API
             const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/commits?limit=30`));
-            
+
             if (!response.ok) throw new Error('Failed to load commits');
-            
+
             const data = await response.json();
             const commits = data.commits || [];
-            
+
             if (historyCount) {
                 historyCount.textContent = `${commits.length} commits`;
             }
-            
+
             if (commits.length === 0) {
                 historyList.innerHTML = '<div class="empty-state"><p>No commits found</p></div>';
                 return;
             }
-            
+
             historyList.innerHTML = commits.map((commit, index) => `
                 <div class="history-item ${index === 0 ? 'selected' : ''} ${commit.analyzed ? 'analyzed' : ''}" 
                      data-event-id="${commit.event_id || ''}" 
                      data-commit="${commit.sha}"
                      data-analyzed="${commit.analyzed}">
                     <div class="history-icon">
-                        ${commit.author.avatar_url 
-                            ? `<img src="${commit.author.avatar_url}" alt="${commit.author.name}" class="commit-avatar" />`
-                            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        ${commit.author.avatar_url
+                    ? `<img src="${commit.author.avatar_url}" alt="${commit.author.name}" class="commit-avatar" />`
+                    : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="12" cy="12" r="4"></circle>
                                 <line x1="1.05" y1="12" x2="7" y2="12"></line>
                                 <line x1="17.01" y1="12" x2="22.96" y2="12"></line>
                             </svg>`
-                        }
+                }
                     </div>
                     <div class="history-content">
                         <div class="history-commit">
@@ -296,25 +296,25 @@ document.addEventListener('DOMContentLoaded', function () {
                         <div class="history-message" title="${commit.full_message}">${commit.message}</div>
                         <div class="history-stats">
                             <span class="history-author">${commit.author.login || commit.author.name}</span>
-                            ${commit.analyzed 
-                                ? `<span class="history-stat analyzed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Analyzed</span>`
-                                : `<span class="history-stat pending">Not analyzed</span>`
-                            }
+                            ${commit.analyzed
+                    ? `<span class="history-stat analyzed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Analyzed</span>`
+                    : `<span class="history-stat pending">Not analyzed</span>`
+                }
                         </div>
                     </div>
                 </div>
             `).join('');
-            
+
             // Add click listeners to load specific commits
             historyList.querySelectorAll('.history-item').forEach(item => {
                 item.addEventListener('click', async () => {
                     historyList.querySelectorAll('.history-item').forEach(i => i.classList.remove('selected'));
                     item.classList.add('selected');
-                    
+
                     const eventId = item.dataset.eventId;
                     const commitSha = item.dataset.commit;
                     const isAnalyzed = item.dataset.analyzed === 'true';
-                    
+
                     if (selectedRepo) {
                         if (isAnalyzed && eventId) {
                             await loadEventAnalysis(selectedRepo.full_name, eventId);
@@ -324,30 +324,30 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
             });
-            
+
         } catch (error) {
             console.error('Error loading commits:', error);
             historyList.innerHTML = '<div class="empty-state"><p>Failed to load commits</p></div>';
         }
     }
-    
+
     function showCommitNotAnalyzed(commitSha) {
         // Reset the summary stats to show empty state
         document.getElementById('files-changed').textContent = '0';
         document.getElementById('lines-added').textContent = '0';
         document.getElementById('lines-removed').textContent = '0';
         document.getElementById('commit-count').textContent = '1';
-        
+
         const webhookTime = document.getElementById('webhook-time');
         if (webhookTime) {
             webhookTime.textContent = '';
         }
-        
+
         const changeTypes = document.getElementById('change-types');
         if (changeTypes) {
             changeTypes.innerHTML = '<span class="change-type-badge pending">Not Analyzed</span>';
         }
-        
+
         if (fileTree) {
             fileTree.innerHTML = `
                 <div class="not-analyzed-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center; height: 100%;">
@@ -382,7 +382,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     </button>
                 </div>
             `;
-            
+
             // Add click handler for analyze button
             const analyzeBtn = document.getElementById('analyze-commit-btn');
             if (analyzeBtn) {
@@ -391,7 +391,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         clearDiffContent();
     }
-    
+
     async function triggerAnalysis(commitSha) {
         const analyzeBtn = document.getElementById('analyze-commit-btn');
         if (analyzeBtn) {
@@ -401,7 +401,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 Analyzing...
             `;
         }
-        
+
         try {
             const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(selectedRepo.full_name)}/analyze`), {
                 method: 'POST',
@@ -412,13 +412,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     commit_sha: commitSha
                 })
             });
-            
+
             if (!response.ok) {
                 throw new Error('Failed to trigger analysis');
             }
-            
+
             const data = await response.json();
-            
+
             if (data.success) {
                 // Show success and refresh
                 if (analyzeBtn) {
@@ -429,24 +429,24 @@ document.addEventListener('DOMContentLoaded', function () {
                         Analysis Started
                     `;
                 }
-                
+
                 // Poll for completion
                 let attempts = 0;
                 const maxAttempts = 30; // 30 seconds max
-                
+
                 const pollForCompletion = async () => {
                     attempts++;
                     if (attempts > maxAttempts) {
                         showUpdateNotification('Analysis taking longer than expected...');
                         return;
                     }
-                    
+
                     // Check if analysis is complete
                     const checkResponse = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(selectedRepo.full_name)}/commits?limit=30`));
                     if (checkResponse.ok) {
                         const checkData = await checkResponse.json();
                         const commit = checkData.commits?.find(c => c.sha === commitSha);
-                        
+
                         if (commit?.analyzed && commit?.event_id) {
                             // Analysis complete, load the results
                             await loadEventAnalysis(selectedRepo.full_name, commit.event_id);
@@ -455,16 +455,16 @@ document.addEventListener('DOMContentLoaded', function () {
                             return;
                         }
                     }
-                    
+
                     // Continue polling
                     setTimeout(pollForCompletion, 1000);
                 };
-                
+
                 setTimeout(pollForCompletion, 1000);
             } else {
                 throw new Error(data.error || 'Analysis failed');
             }
-            
+
         } catch (error) {
             console.error('Error triggering analysis:', error);
             if (analyzeBtn) {
@@ -537,7 +537,7 @@ document.addEventListener('DOMContentLoaded', function () {
     async function startPolling(fullName) {
         // Clear any existing polling
         stopPolling();
-        
+
         // First, get the current latest event ID so we only notify on NEW events
         try {
             const initResponse = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`));
@@ -551,32 +551,32 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (e) {
             console.error('Failed to initialize polling:', e);
         }
-        
+
         // Poll every 5 seconds for updates
         pollInterval = setInterval(async () => {
             if (!selectedRepo) {
                 stopPolling();
                 return;
             }
-            
+
             try {
                 const response = await window.ETTA_API.authFetch(getApiUrl(`/api/repositories/${encodeURIComponent(fullName)}/latest-event`));
-                
+
                 if (!response.ok) return;
-                
+
                 const data = await response.json();
-                
+
                 // Check if there's a NEW processed event (different ID than what we have)
                 if (data.has_update && data.processed && data.event_id && data.event_id !== lastEventId) {
                     console.log('New update detected! Old ID:', lastEventId, 'New ID:', data.event_id);
                     lastEventId = data.event_id;
-                    
+
                     // Show notification
                     showUpdateNotification(data.commit_sha);
-                    
+
                     // Reload the analysis data
                     await loadRepositoryAnalysis(fullName);
-                    
+
                     // Also reload repositories list to update commit hash display
                     await loadRepositories();
                 }
@@ -585,14 +585,14 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }, 5000); // Check every 5 seconds
     }
-    
+
     function stopPolling() {
         if (pollInterval) {
             clearInterval(pollInterval);
             pollInterval = null;
         }
     }
-    
+
     function showUpdateNotification(commitSha) {
         // Create a subtle notification
         const notification = document.createElement('div');
@@ -605,10 +605,10 @@ document.addEventListener('DOMContentLoaded', function () {
             <span>New commit ${commitSha ? `(${commitSha})` : ''} processed</span>
         `;
         document.body.appendChild(notification);
-        
+
         // Animate in
         setTimeout(() => notification.classList.add('show'), 10);
-        
+
         // Remove after 3 seconds
         setTimeout(() => {
             notification.classList.remove('show');
@@ -674,7 +674,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const index = parseInt(element.dataset.index);
         const file = currentAnalysis?.files?.[index];
-        
+
         if (file) {
             selectedFile = file;
             renderDiff(file);
@@ -818,7 +818,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function formatRelativeTime(timestamp) {
         if (!timestamp) return '';
-        
+
         const date = new Date(timestamp);
         const now = new Date();
         const diff = Math.floor((now - date) / 1000);
@@ -827,7 +827,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
         if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
         if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-        
+
         return date.toLocaleDateString();
     }
 
@@ -850,7 +850,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (line.startsWith('@@')) {
                 if (currentHunk) hunks.push(currentHunk);
                 currentHunk = { header: line, lines: [] };
-                
+
                 // Parse line numbers from hunk header
                 const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
                 lineNum = match ? parseInt(match[1]) - 1 : 0;
@@ -940,5 +940,3 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 });
-
-

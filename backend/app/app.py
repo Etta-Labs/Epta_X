@@ -28,7 +28,11 @@ from backend.app.database import (
     update_webhook_delivery, deactivate_webhook,
     create_webhook_event, get_webhook_event_by_delivery_id,
     get_unprocessed_webhook_events, mark_webhook_event_processed,
-    get_recent_webhook_events, get_db_connection
+    get_recent_webhook_events, get_db_connection,
+    # Impact Analysis
+    init_impact_predictions_table, create_impact_prediction,
+    get_impact_prediction_by_id, get_impact_prediction_by_commit,
+    get_impact_predictions_for_repo, get_impact_stats_for_repo, get_all_impact_stats
 )
 
 # Import GitHub API module
@@ -40,6 +44,12 @@ from backend.api.git_repo import (
 # Import diff analyzer module
 from backend.api.diff_analyzer import (
     DiffAnalyzer, analyze_commits, analyze_from_webhook
+)
+
+# Import impact predictor module
+from backend.api.impact_predictor import (
+    analyze_commit as analyze_commit_impact,
+    extract_features_from_analysis, predict_risk
 )
 
 # Environment configuration
@@ -112,6 +122,8 @@ app.add_middleware(SecurityHeadersMiddleware)
 async def startup_event():
     """Initialize database on application startup"""
     init_database()
+    # Initialize impact predictions table
+    init_impact_predictions_table()
 
 
 # CSRF Helper Functions
@@ -2412,3 +2424,335 @@ async def get_repository_commits(
     except Exception as e:
         print(f"Error fetching commits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== IMPACT ANALYSIS ROUTES ====================
+
+class ImpactPredictionRequest(BaseModel):
+    """Request body for impact prediction"""
+    features: Optional[Dict] = None
+    analysis_data: Optional[Dict] = None
+    repository_full_name: Optional[str] = None
+    commit_sha: Optional[str] = None
+    branch: Optional[str] = None
+
+
+@app.post("/api/impact-analysis/predict")
+async def predict_impact(request: Request, body: ImpactPredictionRequest):
+    """
+    Run impact analysis prediction on provided features or analysis data.
+    
+    Can be called with either:
+    - features: Pre-extracted features dict
+    - analysis_data: Raw analysis data to extract features from
+    """
+    try:
+        # Get token for auth check
+        token = get_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        features = body.features
+        
+        # If analysis_data provided, extract features
+        if body.analysis_data and not features:
+            features = extract_features_from_analysis(
+                body.analysis_data,
+                body.repository_full_name or '',
+                None  # No historical data for now
+            )
+        
+        if not features:
+            raise HTTPException(
+                status_code=400, 
+                detail="Either 'features' or 'analysis_data' must be provided"
+            )
+        
+        # Run prediction
+        prediction = predict_risk(features)
+        
+        # Store the prediction if we have commit info
+        if body.commit_sha and body.repository_full_name:
+            prediction_data = {
+                'repository_full_name': body.repository_full_name,
+                'commit_sha': body.commit_sha,
+                'branch': body.branch,
+                **features,
+                'failure_occurred': prediction.get('failure_occurred', 0),
+                'failure_severity': prediction.get('failure_severity', 'none'),
+                'risk_score': prediction.get('risk_score', 0),
+                'risk_level': prediction.get('risk_level', 'NONE'),
+                'features': features,
+                'prediction': prediction
+            }
+            stored = create_impact_prediction(prediction_data)
+            if stored:
+                prediction['prediction_id'] = stored['id']
+        
+        return {
+            'features': features,
+            'prediction': prediction,
+            'repository': body.repository_full_name,
+            'commit_sha': body.commit_sha
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in impact prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/impact-analysis/analyze/{full_name:path}/commit/{commit_sha}")
+async def analyze_commit_for_impact(
+    request: Request, 
+    full_name: str, 
+    commit_sha: str,
+    force: bool = False
+):
+    """
+    Analyze a specific commit for impact and return predictions.
+    Uses existing analysis data if available.
+    """
+    try:
+        token = get_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        # Check if prediction already exists
+        if not force:
+            existing = get_impact_prediction_by_commit(commit_sha, full_name)
+            if existing:
+                import json
+                return {
+                    'prediction_id': existing['id'],
+                    'features': json.loads(existing.get('features_json', '{}')),
+                    'prediction': {
+                        'failure_occurred': existing['failure_occurred'],
+                        'failure_severity': existing['failure_severity'],
+                        'risk_score': existing['risk_score'],
+                        'risk_level': existing['risk_level']
+                    },
+                    'repository': full_name,
+                    'commit_sha': commit_sha,
+                    'cached': True
+                }
+        
+        # Get analysis data for this commit
+        # First check if we have stored analysis
+        events = get_recent_webhook_events(full_name, limit=100)
+        analysis_data = None
+        branch = None
+        
+        for event in events:
+            if event.get('commit_sha') == commit_sha and event.get('processing_result'):
+                import json
+                try:
+                    analysis_data = json.loads(event['processing_result'])
+                    branch = event.get('branch')
+                    break
+                except:
+                    pass
+        
+        # If no stored analysis, try to fetch from GitHub and analyze
+        if not analysis_data:
+            github = GitHubAPI(token)
+            
+            # Get commit details
+            commit_data = github.get_commit_diff(full_name, commit_sha)
+            if commit_data:
+                # Create minimal analysis data structure
+                files = commit_data.get('files', [])
+                analysis_data = {
+                    'summary': {
+                        'files_changed': len(files),
+                        'lines_added': sum(f.get('additions', 0) for f in files),
+                        'lines_removed': sum(f.get('deletions', 0) for f in files)
+                    },
+                    'files': [{'path': f.get('filename', '')} for f in files]
+                }
+                branch = commit_data.get('commit', {}).get('message', '').split('\n')[0]
+        
+        if not analysis_data:
+            raise HTTPException(
+                status_code=404, 
+                detail="No analysis data found for this commit"
+            )
+        
+        # Extract features and predict
+        features = extract_features_from_analysis(analysis_data, full_name)
+        prediction = predict_risk(features)
+        
+        # Store the prediction
+        prediction_data = {
+            'repository_full_name': full_name,
+            'commit_sha': commit_sha,
+            'branch': branch,
+            **features,
+            'failure_occurred': prediction.get('failure_occurred', 0),
+            'failure_severity': prediction.get('failure_severity', 'none'),
+            'risk_score': prediction.get('risk_score', 0),
+            'risk_level': prediction.get('risk_level', 'NONE'),
+            'features': features,
+            'prediction': prediction
+        }
+        stored = create_impact_prediction(prediction_data)
+        
+        return {
+            'prediction_id': stored['id'] if stored else None,
+            'features': features,
+            'prediction': prediction,
+            'repository': full_name,
+            'commit_sha': commit_sha,
+            'cached': False
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error analyzing commit for impact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/impact-analysis/history/{full_name:path}")
+async def get_impact_history(
+    request: Request, 
+    full_name: str, 
+    limit: int = 50
+):
+    """Get impact analysis history for a repository"""
+    try:
+        token = get_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        predictions = get_impact_predictions_for_repo(full_name, limit)
+        
+        # Format for frontend
+        import json
+        formatted = []
+        for p in predictions:
+            formatted.append({
+                'id': p['id'],
+                'commit_sha': p['commit_sha'],
+                'branch': p.get('branch'),
+                'risk_score': p['risk_score'],
+                'risk_level': p['risk_level'],
+                'failure_occurred': p['failure_occurred'],
+                'failure_severity': p['failure_severity'],
+                'lines_changed': p.get('lines_changed', 0),
+                'files_changed': p.get('files_changed', 0),
+                'change_type': p.get('change_type'),
+                'component_type': p.get('component_type'),
+                'module_name': p.get('module_name'),
+                'function_category': p.get('function_category'),
+                'created_at': p.get('created_at')
+            })
+        
+        return {
+            'repository': full_name,
+            'predictions': formatted,
+            'count': len(formatted)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting impact history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/impact-analysis/stats/{full_name:path}")
+async def get_impact_statistics(request: Request, full_name: str):
+    """Get impact analysis statistics for a repository"""
+    try:
+        token = get_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        stats = get_impact_stats_for_repo(full_name)
+        
+        return {
+            'repository': full_name,
+            'stats': stats
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting impact stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/impact-analysis/stats")
+async def get_all_impact_statistics(request: Request):
+    """Get overall impact analysis statistics"""
+    try:
+        token = get_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        stats = get_all_impact_stats()
+        
+        return {
+            'stats': stats
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting all impact stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/impact-analysis/prediction/{prediction_id}")
+async def get_impact_prediction(request: Request, prediction_id: int):
+    """Get a specific impact prediction by ID"""
+    try:
+        token = get_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        prediction = get_impact_prediction_by_id(prediction_id)
+        
+        if not prediction:
+            raise HTTPException(status_code=404, detail="Prediction not found")
+        
+        import json
+        return {
+            'id': prediction['id'],
+            'repository': prediction['repository_full_name'],
+            'commit_sha': prediction['commit_sha'],
+            'branch': prediction.get('branch'),
+            'features': json.loads(prediction.get('features_json', '{}')),
+            'prediction': {
+                'failure_occurred': prediction['failure_occurred'],
+                'failure_severity': prediction['failure_severity'],
+                'risk_score': prediction['risk_score'],
+                'risk_level': prediction['risk_level']
+            },
+            'input_features': {
+                'lines_changed': prediction.get('lines_changed'),
+                'files_changed': prediction.get('files_changed'),
+                'change_type': prediction.get('change_type'),
+                'component_type': prediction.get('component_type'),
+                'module_name': prediction.get('module_name'),
+                'function_category': prediction.get('function_category'),
+                'repo_type': prediction.get('repo_type'),
+                'test_coverage_level': prediction.get('test_coverage_level'),
+                'dependency_depth': prediction.get('dependency_depth'),
+                'shared_component': prediction.get('shared_component'),
+                'historical_failure_count': prediction.get('historical_failure_count'),
+                'historical_change_frequency': prediction.get('historical_change_frequency'),
+                'days_since_last_failure': prediction.get('days_since_last_failure'),
+                'tests_impacted': prediction.get('tests_impacted')
+            },
+            'created_at': prediction.get('created_at')
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting impact prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

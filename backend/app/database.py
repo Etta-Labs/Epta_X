@@ -682,4 +682,219 @@ def get_recent_webhook_events(repository_full_name: str = None,
         
         return [dict(row) for row in cursor.fetchall()]
 
+# ==================== IMPACT PREDICTIONS ====================
+
+def init_impact_predictions_table():
+    """Initialize the impact predictions table"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS impact_predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                webhook_event_id INTEGER,
+                repository_full_name VARCHAR(255) NOT NULL,
+                commit_sha VARCHAR(40) NOT NULL,
+                branch VARCHAR(255),
+                -- Input features
+                lines_changed INTEGER,
+                files_changed INTEGER,
+                change_type VARCHAR(50),
+                component_type VARCHAR(50),
+                module_name VARCHAR(100),
+                function_category VARCHAR(50),
+                repo_type VARCHAR(50),
+                test_coverage_level VARCHAR(20),
+                dependency_depth INTEGER,
+                shared_component INTEGER DEFAULT 0,
+                historical_failure_count INTEGER,
+                historical_change_frequency INTEGER,
+                days_since_last_failure INTEGER,
+                tests_impacted INTEGER,
+                -- Output predictions
+                failure_occurred INTEGER NOT NULL DEFAULT 0,
+                failure_severity VARCHAR(20) NOT NULL DEFAULT 'none',
+                risk_score FLOAT NOT NULL DEFAULT 0,
+                risk_level VARCHAR(20) NOT NULL DEFAULT 'NONE',
+                -- Metadata
+                features_json TEXT,
+                prediction_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (webhook_event_id) REFERENCES webhook_events(id) ON DELETE SET NULL
+            )
+        """)
+        
+        # Create indexes for faster queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_impact_predictions_repo 
+            ON impact_predictions(repository_full_name, created_at DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_impact_predictions_risk 
+            ON impact_predictions(risk_level, repository_full_name)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_impact_predictions_commit 
+            ON impact_predictions(commit_sha)
+        """)
+        
+        conn.commit()
+
+
+def create_impact_prediction(prediction_data: dict) -> Optional[dict]:
+    """Create a new impact prediction record"""
+    import json
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO impact_predictions (
+                webhook_event_id, repository_full_name, commit_sha, branch,
+                lines_changed, files_changed, change_type, component_type,
+                module_name, function_category, repo_type, test_coverage_level,
+                dependency_depth, shared_component, historical_failure_count,
+                historical_change_frequency, days_since_last_failure, tests_impacted,
+                failure_occurred, failure_severity, risk_score, risk_level,
+                features_json, prediction_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            prediction_data.get('webhook_event_id'),
+            prediction_data.get('repository_full_name'),
+            prediction_data.get('commit_sha'),
+            prediction_data.get('branch'),
+            prediction_data.get('lines_changed', 0),
+            prediction_data.get('files_changed', 0),
+            prediction_data.get('change_type'),
+            prediction_data.get('component_type'),
+            prediction_data.get('module_name'),
+            prediction_data.get('function_category'),
+            prediction_data.get('repo_type'),
+            prediction_data.get('test_coverage_level'),
+            prediction_data.get('dependency_depth', 0),
+            prediction_data.get('shared_component', 0),
+            prediction_data.get('historical_failure_count', 0),
+            prediction_data.get('historical_change_frequency', 0),
+            prediction_data.get('days_since_last_failure', 0),
+            prediction_data.get('tests_impacted', 0),
+            prediction_data.get('failure_occurred', 0),
+            prediction_data.get('failure_severity', 'none'),
+            prediction_data.get('risk_score', 0),
+            prediction_data.get('risk_level', 'NONE'),
+            json.dumps(prediction_data.get('features', {})),
+            json.dumps(prediction_data.get('prediction', {})),
+        ))
+        conn.commit()
+        return get_impact_prediction_by_id(cursor.lastrowid)
+
+
+def get_impact_prediction_by_id(prediction_id: int) -> Optional[dict]:
+    """Get an impact prediction by ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM impact_predictions WHERE id = ?", (prediction_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_impact_prediction_by_commit(commit_sha: str, repository_full_name: str = None) -> Optional[dict]:
+    """Get an impact prediction by commit SHA"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if repository_full_name:
+            cursor.execute(
+                "SELECT * FROM impact_predictions WHERE commit_sha = ? AND repository_full_name = ? ORDER BY created_at DESC LIMIT 1",
+                (commit_sha, repository_full_name)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM impact_predictions WHERE commit_sha = ? ORDER BY created_at DESC LIMIT 1",
+                (commit_sha,)
+            )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_impact_predictions_for_repo(repository_full_name: str, limit: int = 50) -> list:
+    """Get impact predictions for a repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM impact_predictions 
+            WHERE repository_full_name = ?
+            ORDER BY created_at DESC 
+            LIMIT ?
+        """, (repository_full_name, limit))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_impact_stats_for_repo(repository_full_name: str) -> dict:
+    """Get impact analysis statistics for a repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Total count
+        cursor.execute(
+            "SELECT COUNT(*) as total FROM impact_predictions WHERE repository_full_name = ?",
+            (repository_full_name,)
+        )
+        total = cursor.fetchone()['total']
+        
+        # Count by risk level
+        cursor.execute("""
+            SELECT risk_level, COUNT(*) as count 
+            FROM impact_predictions 
+            WHERE repository_full_name = ?
+            GROUP BY risk_level
+        """, (repository_full_name,))
+        
+        risk_counts = {'NONE': 0, 'LOW': 0, 'MEDIUM': 0, 'HIGH': 0}
+        for row in cursor.fetchall():
+            risk_counts[row['risk_level']] = row['count']
+        
+        # Average risk score
+        cursor.execute(
+            "SELECT AVG(risk_score) as avg_score FROM impact_predictions WHERE repository_full_name = ?",
+            (repository_full_name,)
+        )
+        avg_score = cursor.fetchone()['avg_score'] or 0
+        
+        return {
+            'total': total,
+            'high_risk': risk_counts.get('HIGH', 0),
+            'medium_risk': risk_counts.get('MEDIUM', 0),
+            'low_risk': risk_counts.get('LOW', 0),
+            'no_risk': risk_counts.get('NONE', 0),
+            'average_risk_score': round(avg_score, 1)
+        }
+
+
+def get_all_impact_stats() -> dict:
+    """Get overall impact analysis statistics"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) as total FROM impact_predictions")
+        total = cursor.fetchone()['total']
+        
+        cursor.execute("""
+            SELECT risk_level, COUNT(*) as count 
+            FROM impact_predictions 
+            GROUP BY risk_level
+        """)
+        
+        risk_counts = {'NONE': 0, 'LOW': 0, 'MEDIUM': 0, 'HIGH': 0}
+        for row in cursor.fetchall():
+            risk_counts[row['risk_level']] = row['count']
+        
+        cursor.execute("SELECT AVG(risk_score) as avg_score FROM impact_predictions")
+        avg_score = cursor.fetchone()['avg_score'] or 0
+        
+        return {
+            'total': total,
+            'high_risk': risk_counts.get('HIGH', 0),
+            'medium_risk': risk_counts.get('MEDIUM', 0),
+            'low_risk': risk_counts.get('LOW', 0),
+            'no_risk': risk_counts.get('NONE', 0),
+            'average_risk_score': round(avg_score, 1)
+        }
+
+
 # Database is initialized via app.py startup event
