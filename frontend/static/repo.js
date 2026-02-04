@@ -68,6 +68,29 @@ document.addEventListener('DOMContentLoaded', function () {
     initTheme();
     initEventListeners();
     loadRepositories();
+    initSelfHealingPanel();
+
+    // ==================== SELF-HEALING PANEL ====================
+    function initSelfHealingPanel() {
+        const toggle = document.getElementById('self-healing-toggle');
+        const panel = document.getElementById('self-healing-panel');
+        
+        if (toggle && panel) {
+            toggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+                panel.classList.toggle('open');
+                toggle.classList.toggle('active');
+            });
+            
+            // Close when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!panel.contains(e.target) && !toggle.contains(e.target)) {
+                    panel.classList.remove('open');
+                    toggle.classList.remove('active');
+                }
+            });
+        }
+    }
 
     // ==================== THEME ====================
     function initTheme() {

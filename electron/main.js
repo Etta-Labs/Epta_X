@@ -4,6 +4,9 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 
+// Load environment variables from .env file
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 // Set app name for protocol handler (makes browser say "Open ETTA-X" not "Open Electron")
 app.setName('ETTA-X');
 
@@ -53,13 +56,16 @@ if (process.defaultApp) {
 // Set USE_REMOTE_SERVER to true for client-server architecture (connects to remote backend)
 // Set to false for standalone mode (runs backend locally)
 const USE_REMOTE_SERVER = true;
-const REMOTE_SERVER_URL = 'https://etta.gowshik.online';
+const REMOTE_SERVER_URL = process.env.BACKEND_URL || 'https://etta.gowshik.online';
 const LOCAL_PORT = 4567;
 
 // API URL for backend calls
 const API_URL = USE_REMOTE_SERVER ? REMOTE_SERVER_URL : `http://127.0.0.1:${LOCAL_PORT}`;
 // Keep APP_URL for backwards compatibility
 const APP_URL = API_URL;
+
+// Log the backend URL being used
+console.log(`[CONFIG] Backend URL: ${REMOTE_SERVER_URL}`);
 
 // Path to local frontend pages
 const FRONTEND_PATH = path.join(__dirname, '..', 'frontend', 'pages');
@@ -311,6 +317,9 @@ ipcMain.on('help-about', () => {
 
 // Theme handlers
 ipcMain.handle('get-theme', () => currentTheme);
+
+// Backend URL handler - returns the configured backend URL from environment
+ipcMain.handle('get-backend-url', () => REMOTE_SERVER_URL);
 
 ipcMain.handle('set-theme', (event, theme) => {
     currentTheme = theme;

@@ -7,8 +7,28 @@
  * (cookies don't work across file:// to https:// origins)
  */
 
-// API Base URL - Configure this to point to your backend server
-const API_BASE_URL = 'https://etta.gowshik.online';
+// API Base URL - Gets from Electron environment or uses default
+// Default fallback for development/non-Electron environments
+let API_BASE_URL = 'https://etta.gowshik.online';
+
+// Initialize backend URL from Electron (if available)
+(async function initBackendUrl() {
+    if (window.electronAPI && window.electronAPI.getBackendUrl) {
+        try {
+            const backendUrl = await window.electronAPI.getBackendUrl();
+            if (backendUrl) {
+                API_BASE_URL = backendUrl;
+                // Update the exported object
+                if (window.ETTA_API) {
+                    window.ETTA_API.baseUrl = backendUrl;
+                }
+                console.log('Backend URL loaded from environment:', backendUrl);
+            }
+        } catch (e) {
+            console.log('Using default backend URL:', API_BASE_URL);
+        }
+    }
+})();
 
 // Token storage key
 const TOKEN_KEY = 'ettax_auth_token';

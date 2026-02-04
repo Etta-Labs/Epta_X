@@ -41,5 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Platform info
     platform: process.platform,
-    isElectron: true
+    isElectron: true,
+
+    // Backend URL from environment
+    getBackendUrl: () => ipcRenderer.invoke('get-backend-url')
 });
