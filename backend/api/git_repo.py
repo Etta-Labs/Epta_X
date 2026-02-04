@@ -251,6 +251,66 @@ class GitHubAPI:
                 "updated_at": repo_data["updated_at"],
             }
     
+    def get_commit_diff(self, full_name: str, commit_sha: str) -> Optional[Dict[str, Any]]:
+        """
+        Get commit details and diff information (synchronous version).
+        
+        Args:
+            full_name: Repository full name (owner/repo)
+            commit_sha: Commit SHA to fetch
+        
+        Returns:
+            Commit data including files changed, additions, deletions
+        """
+        import httpx
+        
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(
+                    f"{self.BASE_URL}/repos/{full_name}/commits/{commit_sha}",
+                    headers=self.headers
+                )
+                
+                if response.status_code == 404:
+                    print(f"[GitHubAPI] Commit not found: {commit_sha}")
+                    return None
+                
+                if response.status_code != 200:
+                    print(f"[GitHubAPI] Failed to fetch commit: {response.status_code}")
+                    return None
+                
+                return response.json()
+        except Exception as e:
+            print(f"[GitHubAPI] Error fetching commit diff: {e}")
+            return None
+    
+    async def get_commit_diff_async(self, full_name: str, commit_sha: str) -> Optional[Dict[str, Any]]:
+        """
+        Get commit details and diff information (async version).
+        
+        Args:
+            full_name: Repository full name (owner/repo)
+            commit_sha: Commit SHA to fetch
+        
+        Returns:
+            Commit data including files changed, additions, deletions
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self.BASE_URL}/repos/{full_name}/commits/{commit_sha}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                print(f"[GitHubAPI] Commit not found: {commit_sha}")
+                return None
+            
+            if response.status_code != 200:
+                print(f"[GitHubAPI] Failed to fetch commit: {response.status_code}")
+                return None
+            
+            return response.json()
+    
     # ==================== WEBHOOK MANAGEMENT ====================
     
     async def list_webhooks(self, owner: str, repo: str) -> List[Dict[str, Any]]:

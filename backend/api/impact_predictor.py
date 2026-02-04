@@ -369,8 +369,8 @@ def predict_risk(features: Dict[str, Any]) -> Dict[str, Any]:
             failure_severity = 'none'
             risk_score = calculate_risk_score(failure_occurred, failure_severity, features)
         
-        # Determine risk level
-        risk_level = get_risk_level(failure_severity, failure_occurred)
+        # Determine risk level using risk_score for more accurate determination
+        risk_level = get_risk_level(failure_severity, failure_occurred, risk_score)
         
         result = {
             'failure_occurred': failure_occurred,
@@ -393,16 +393,76 @@ def calculate_risk_score(failure_occurred: int, failure_severity: str, features:
     """Calculate a risk score based on prediction and features."""
     base_score = 0
     
+    # Get feature values
+    lines_changed = features.get('lines_changed', 0)
+    files_changed = features.get('files_changed', 0)
+    shared_component = features.get('shared_component', 0)
+    dependency_depth = features.get('dependency_depth', 0)
+    historical_failure_count = features.get('historical_failure_count', 0)
+    historical_change_frequency = features.get('historical_change_frequency', 0)
+    days_since_last_failure = features.get('days_since_last_failure', 180)
+    test_coverage_level = features.get('test_coverage_level', 'medium')
+    change_type = features.get('change_type', '')
+    component_type = features.get('component_type', '')
+    
     if failure_occurred == 0:
-        # No failure predicted - low risk
-        base_score = 15
-        # Adjust based on features
-        if features.get('lines_changed', 0) > 500:
+        # No failure predicted - calculate risk based on features
+        base_score = 10
+        
+        # Lines changed impact (0-20 points)
+        if lines_changed > 1000:
+            base_score += 20
+        elif lines_changed > 500:
+            base_score += 15
+        elif lines_changed > 200:
             base_score += 10
-        if features.get('files_changed', 0) > 10:
+        elif lines_changed > 50:
             base_score += 5
-        if features.get('shared_component', 0):
+        
+        # Files changed impact (0-15 points)
+        if files_changed > 20:
+            base_score += 15
+        elif files_changed > 10:
+            base_score += 10
+        elif files_changed > 5:
             base_score += 5
+        
+        # Shared component (0-10 points)
+        if shared_component:
+            base_score += 10
+        
+        # Dependency depth (0-10 points)
+        if dependency_depth > 5:
+            base_score += 10
+        elif dependency_depth > 3:
+            base_score += 5
+        
+        # Historical failures (0-10 points)
+        if historical_failure_count > 50:
+            base_score += 10
+        elif historical_failure_count > 20:
+            base_score += 5
+        
+        # Recent failures (0-10 points)
+        if days_since_last_failure < 7:
+            base_score += 10
+        elif days_since_last_failure < 30:
+            base_score += 5
+        
+        # Test coverage (0-10 points)
+        if test_coverage_level == 'low':
+            base_score += 10
+        elif test_coverage_level == 'medium':
+            base_score += 3
+        
+        # Change type risk (0-10 points)
+        if change_type == 'API_CHANGE':
+            base_score += 8
+        elif change_type == 'SERVICE_LOGIC_CHANGE':
+            base_score += 5
+        elif change_type == 'CONFIG_CHANGE':
+            base_score += 7
+        
     else:
         # Failure predicted
         if failure_severity == 'low':
@@ -414,17 +474,33 @@ def calculate_risk_score(failure_occurred: int, failure_severity: str, features:
         else:
             base_score = 35
         
-        # Additional adjustments
-        if features.get('test_coverage_level') == 'low':
+        # Additional adjustments for failure cases
+        if test_coverage_level == 'low':
             base_score += 5
-        if features.get('historical_failure_count', 0) > 50:
+        if historical_failure_count > 50:
             base_score += 5
+        if shared_component:
+            base_score += 3
+        if lines_changed > 500:
+            base_score += 3
     
-    return min(max(base_score, 0), 100)
+    return min(max(base_score, 5), 100)
 
 
-def get_risk_level(failure_severity: str, failure_occurred: int = 0) -> str:
-    """Get risk level label based on failure severity."""
+def get_risk_level(failure_severity: str, failure_occurred: int = 0, risk_score: float = None) -> str:
+    """Get risk level label based on failure severity and risk score."""
+    # If we have a risk_score, use it for more accurate level determination
+    if risk_score is not None:
+        if risk_score >= 75:
+            return 'HIGH'
+        elif risk_score >= 50:
+            return 'MEDIUM'
+        elif risk_score >= 25:
+            return 'LOW'
+        else:
+            return 'NONE'
+    
+    # Fallback to severity-based determination
     if failure_occurred == 0 or failure_severity == 'none':
         return 'NONE'
     elif failure_severity == 'low':
@@ -507,7 +583,7 @@ def calculate_fallback_prediction(features: Dict, error: str = '') -> Dict[str, 
         'failure_occurred': failure_occurred,
         'failure_severity': failure_severity,
         'risk_score': round(risk_score, 1),
-        'risk_level': get_risk_level(failure_severity, failure_occurred),
+        'risk_level': get_risk_level(failure_severity, failure_occurred, risk_score),
         'fallback': True,
         'error': error if error else None
     }
