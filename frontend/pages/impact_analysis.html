@@ -247,10 +247,10 @@
     </style>
 
     <!-- Top Bar -->
-    <div class="top-bar">
+    <header class="top-bar">
         <div class="header-left">
             <div class="logo">
-                <img src="../static/assets/logo.png" alt="ETTA-X" width="32" height="32">
+                <img src="../static/assets/logo_bg_bl.png" alt="ETTA-X Logo" width="32" height="32" id="logo-img">
                 <span>ETTA-X</span>
             </div>
         </div>
@@ -272,10 +272,12 @@
                 </button>
             </div>
             <div class="profile-dropdown-container">
-                <img src="" alt="Profile" class="profile-icon" id="user-avatar" onclick="toggleProfileDropdown()">
+                <img src="../static/assets/profile.png" alt="Profile" class="profile-icon" id="user-avatar"
+                    onclick="toggleProfileDropdown()">
                 <div class="profile-dropdown" id="profileDropdown">
                     <div class="profile-info">
-                        <img src="" alt="" class="profile-dropdown-avatar" id="profile-dropdown-avatar">
+                        <img src="../static/assets/profile.png" alt="" class="profile-dropdown-avatar"
+                            id="profile-dropdown-avatar">
                         <div class="profile-details">
                             <span class="profile-name" id="profile-name">User</span>
                             <span class="profile-username" id="profile-username">@user</span>
@@ -294,7 +296,7 @@
                 </div>
             </div>
         </div>
-    </div>
+    </header>
 
     <!-- Sidebar -->
     <aside class="sidebar">

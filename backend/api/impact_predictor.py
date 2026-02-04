@@ -296,9 +296,14 @@ def predict_risk(features: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary with prediction results
     """
+    # Log input features
+    print(f"[IMPACT PREDICTOR] Input features: {features}")
+    
     try:
         model = load_model()
+        print(f"[IMPACT PREDICTOR] Model loaded successfully: {type(model)}")
     except FileNotFoundError as e:
+        print(f"[IMPACT PREDICTOR] Model not found: {e}")
         # Return a default prediction if model is not available
         return {
             'failure_occurred': 0,
@@ -315,40 +320,51 @@ def predict_risk(features: Dict[str, Any]) -> Dict[str, Any]:
         
         # Create a single-row DataFrame
         df = pd.DataFrame([features])
+        print(f"[IMPACT PREDICTOR] DataFrame created with columns: {list(df.columns)}")
         
         # Make prediction
         if hasattr(model, 'predict'):
             prediction = model.predict(df)
+            print(f"[IMPACT PREDICTOR] Raw prediction output: {prediction}")
+            print(f"[IMPACT PREDICTOR] Prediction shape: {prediction.shape if hasattr(prediction, 'shape') else 'N/A'}")
             
             # Handle different model output formats
             if hasattr(prediction, 'shape') and len(prediction.shape) > 1:
                 # Multi-output model
                 failure_occurred = int(prediction[0][0]) if prediction.shape[1] > 0 else 0
                 failure_severity_idx = int(prediction[0][1]) if prediction.shape[1] > 1 else 0
+                print(f"[IMPACT PREDICTOR] Multi-output: failure_occurred={failure_occurred}, severity_idx={failure_severity_idx}")
             else:
                 # Single output (assume failure_occurred)
                 failure_occurred = int(prediction[0]) if len(prediction) > 0 else 0
                 failure_severity_idx = 0
+                print(f"[IMPACT PREDICTOR] Single output: failure_occurred={failure_occurred}")
             
             # Map severity index to label
             severity_map = {0: 'none', 1: 'low', 2: 'medium', 3: 'high'}
             failure_severity = severity_map.get(failure_severity_idx, 'none')
+            print(f"[IMPACT PREDICTOR] Mapped failure_severity: {failure_severity}")
             
             # If model has predict_proba, use it for risk score
             if hasattr(model, 'predict_proba'):
                 try:
                     proba = model.predict_proba(df)
+                    print(f"[IMPACT PREDICTOR] Probability output: {proba}")
                     if isinstance(proba, list) and len(proba) > 0:
                         # Multi-output: use failure probability
                         risk_score = float(proba[0][0][1]) * 100 if len(proba[0][0]) > 1 else 50
                     else:
                         risk_score = float(proba[0][1]) * 100 if len(proba[0]) > 1 else 50
-                except:
+                    print(f"[IMPACT PREDICTOR] Risk score from proba: {risk_score}")
+                except Exception as proba_err:
+                    print(f"[IMPACT PREDICTOR] Error getting proba: {proba_err}")
                     risk_score = calculate_risk_score(failure_occurred, failure_severity, features)
             else:
                 risk_score = calculate_risk_score(failure_occurred, failure_severity, features)
+                print(f"[IMPACT PREDICTOR] Risk score from calculate: {risk_score}")
         else:
             # Fallback for non-standard models
+            print(f"[IMPACT PREDICTOR] Model has no predict method, using fallback")
             failure_occurred = 0
             failure_severity = 'none'
             risk_score = calculate_risk_score(failure_occurred, failure_severity, features)
@@ -356,14 +372,19 @@ def predict_risk(features: Dict[str, Any]) -> Dict[str, Any]:
         # Determine risk level
         risk_level = get_risk_level(failure_severity, failure_occurred)
         
-        return {
+        result = {
             'failure_occurred': failure_occurred,
             'failure_severity': failure_severity,
             'risk_score': round(risk_score, 1),
             'risk_level': risk_level
         }
+        print(f"[IMPACT PREDICTOR] Final prediction result: {result}")
+        return result
         
     except Exception as e:
+        print(f"[IMPACT PREDICTOR] Exception during prediction: {e}")
+        import traceback
+        traceback.print_exc()
         # Return a calculated prediction based on features if model fails
         return calculate_fallback_prediction(features, str(e))
 

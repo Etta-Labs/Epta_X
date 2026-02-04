@@ -6,12 +6,12 @@
 /* =============================================
    MAIN CONTENT OVERRIDE
    ============================================= */
+/* Note: .main-content base styles from stlye.css handle positioning */
+/* Only add flexbox and gap for the impact page content */
 .impact-main {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 20px 24px;
-    overflow-y: auto;
 }
 
 /* =============================================
@@ -19,19 +19,20 @@
    ============================================= */
 .impact-stats {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
 }
 
 .impact-stat-card {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 16px 20px;
+    gap: 10px;
+    padding: 14px 16px;
     background: #ffffff;
     border-radius: 10px;
     border: 1px solid #e5e7eb;
     transition: all 0.2s;
+    min-width: 0;
 }
 
 .impact-stat-card:hover {

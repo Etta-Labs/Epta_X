@@ -30,8 +30,17 @@ document.addEventListener('DOMContentLoaded', function () {
     const statLow = document.getElementById('stat-low');
 
     // ==================== INITIALIZATION ====================
+    console.log('[Impact Analysis] Initializing...');
     loadRepositories();
     initEventListeners();
+
+    // Check for URL parameter to auto-select repository
+    const urlParams = new URLSearchParams(window.location.search);
+    const repoParam = urlParams.get('repo');
+    if (repoParam) {
+        console.log('[Impact Analysis] Found repo in URL:', repoParam);
+        selectedRepo = repoParam;
+    }
 
     // ==================== EVENT LISTENERS ====================
     function initEventListeners() {
@@ -55,20 +64,22 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ==================== LOAD REPOSITORIES ====================
     async function loadRepositories() {
+        console.log('[Impact Analysis] Loading repositories...');
         try {
             const response = await window.ETTA_API.authFetch(getApiUrl('/api/repositories/connected'));
 
             if (!response.ok) {
-                console.error('Failed to load repositories');
+                console.error('[Impact Analysis] Failed to load repositories:', response.status);
                 return;
             }
 
             const data = await response.json();
             repositories = data.repositories || [];
+            console.log('[Impact Analysis] Loaded', repositories.length, 'repositories');
             renderRepoSelector();
 
         } catch (error) {
-            console.error('Error loading repositories:', error);
+            console.error('[Impact Analysis] Error loading repositories:', error);
         }
     }
 
@@ -83,6 +94,19 @@ document.addEventListener('DOMContentLoaded', function () {
             option.textContent = repo.full_name;
             repoSelector.appendChild(option);
         });
+
+        // Auto-select from URL parameter or first repository
+        if (selectedRepo) {
+            repoSelector.value = selectedRepo;
+            console.log('[Impact Analysis] Auto-selected repo from URL:', selectedRepo);
+            loadImpactData(selectedRepo);
+        } else if (repositories.length > 0) {
+            // Auto-select first repository if none specified
+            selectedRepo = repositories[0].full_name;
+            repoSelector.value = selectedRepo;
+            console.log('[Impact Analysis] Auto-selected first repo:', selectedRepo);
+            loadImpactData(selectedRepo);
+        }
     }
 
     // ==================== LOAD IMPACT DATA ====================

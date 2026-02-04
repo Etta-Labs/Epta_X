@@ -2621,12 +2621,14 @@ async def get_impact_history(
     limit: int = 50
 ):
     """Get impact analysis history for a repository"""
+    print(f"[IMPACT API] Getting history for repository: {full_name}, limit: {limit}")
     try:
         token = get_token_from_request(request)
         if not token:
             raise HTTPException(status_code=401, detail="Not authenticated")
         
         predictions = get_impact_predictions_for_repo(full_name, limit)
+        print(f"[IMPACT API] Found {len(predictions)} predictions for {full_name}")
         
         # Format for frontend
         import json
@@ -2665,12 +2667,14 @@ async def get_impact_history(
 @app.get("/api/impact-analysis/stats/{full_name:path}")
 async def get_impact_statistics(request: Request, full_name: str):
     """Get impact analysis statistics for a repository"""
+    print(f"[IMPACT API] Getting stats for repository: {full_name}")
     try:
         token = get_token_from_request(request)
         if not token:
             raise HTTPException(status_code=401, detail="Not authenticated")
         
         stats = get_impact_stats_for_repo(full_name)
+        print(f"[IMPACT API] Stats for {full_name}: {stats}")
         
         return {
             'repository': full_name,
