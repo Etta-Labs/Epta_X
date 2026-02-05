@@ -1,7 +1,7 @@
 # ETTA-X: AI-Powered Test Automation & Impact Analysis Platform
 
 <p align="center">
-  <img src="frontend/static/assets/etta_x_logo.png" alt="ETTA-X Logo" width="120"/>
+  <img src="frontend/static/assets/logo.ico" alt="ETTA-X Logo" width="120"/>
 </p>
 
 <p align="center">
@@ -390,4 +390,5 @@ ollama serve
 <p align="center">
   Made with for intelligent test automation
 </p>
+
 
