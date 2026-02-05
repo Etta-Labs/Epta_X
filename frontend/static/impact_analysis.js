@@ -27,13 +27,17 @@ document.addEventListener('DOMContentLoaded', async function() {
     initFilterHandlers();
     initRefreshButton();
     
+    console.log('Impact Analysis - isLoggedIn:', isLoggedIn);
+    
     // Load data if logged in
     if (isLoggedIn) {
+        console.log('Loading pipeline data...');
         await loadRepositories();
         await loadPipelineResults();
         await loadPipelineStats();
         startAutoRefresh();
     } else {
+        console.log('Not logged in, showing empty state');
         showEmptyState('Please sign in to view Impact Analysis results');
     }
 });
@@ -134,11 +138,14 @@ async function loadPipelineResults() {
         
         const response = await fetch('/api/pipeline/recent?limit=50', { credentials: 'include' });
         
+        console.log('Pipeline API response status:', response.status);
+        
         if (!response.ok) {
             throw new Error('Failed to load pipeline results');
         }
         
         const data = await response.json();
+        console.log('Pipeline data received:', data.results?.length || 0, 'results');
         allResults = data.results || [];
         
         // Hide loading
@@ -539,6 +546,84 @@ function initSettingsDropdown() {
             }
         });
     }
+}
+
+// Sync commits from GitHub API directly
+async function syncCommits() {
+    const syncBtn = document.getElementById('sync-btn');
+    if (!syncBtn) return;
+    
+    // Show syncing state
+    syncBtn.disabled = true;
+    syncBtn.classList.add('syncing');
+    syncBtn.innerHTML = `
+        <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6"/>
+            <path d="M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        <span>Syncing...</span>
+    `;
+    
+    try {
+        const response = await fetch('/api/sync/commits', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Sync failed');
+        }
+        
+        const result = await response.json();
+        console.log('Sync result:', result);
+        
+        // Reload the results
+        await loadPipelineResults();
+        await loadPipelineStats();
+        
+        // Show success
+        syncBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>${result.synced} synced</span>
+        `;
+        
+        setTimeout(() => {
+            resetSyncButton();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Sync error:', error);
+        syncBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            <span>Error</span>
+        `;
+        
+        setTimeout(() => {
+            resetSyncButton();
+        }, 2000);
+    }
+}
+
+function resetSyncButton() {
+    const syncBtn = document.getElementById('sync-btn');
+    if (!syncBtn) return;
+    
+    syncBtn.disabled = false;
+    syncBtn.classList.remove('syncing');
+    syncBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6"/>
+            <path d="M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        <span>Sync</span>
+    `;
 }
 
 // Clean up on page unload

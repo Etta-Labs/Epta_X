@@ -11,6 +11,52 @@ body {
     overflow: hidden;
 }
 
+/* Custom Scrollbar Styles */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #e5e7eb;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #9ca3af;
+    border-radius: 5px;
+    border: 2px solid #e5e7eb;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+
+/* Force scrollbars to always show */
+.results-list,
+.tests-list,
+.detail-panel,
+.test-detail-panel,
+.repo-list,
+.history-list {
+    scrollbar-gutter: stable;
+    overflow-y: scroll !important;
+}
+
+/* Dark theme scrollbar */
+body.dark-theme ::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+
+body.dark-theme ::-webkit-scrollbar-thumb {
+    background: #555555;
+    border-color: #2d2d2d;
+}
+
+body.dark-theme ::-webkit-scrollbar-thumb:hover {
+    background: #666666;
+}
+
 /* Early dark theme support - applied via html element to prevent flash */
 html.dark-theme body {
     background-color: #121212;
@@ -332,6 +378,7 @@ html.dark-theme body {
     border-right: 1px solid #e5e7eb;
     padding: 24px 0;
     z-index: 50;
+    overflow-y: auto;
 }
 
 .menu {
@@ -567,24 +614,12 @@ body.dark-theme .main-content {
 
 /* Main Content */
 .main-content {
-    position: fixed;
-    left: 240px;
-    top: 64px;
-    right: 0;
-    bottom: 0;
-    padding: 32px;
-    overflow-y: auto;
-}
-
-/* Responsive */
-/* Main Content */
-.main-content {
     margin-left: 240px;
-    padding-top: 96px;
-    padding-left: 24px;
-    padding-right: 24px;
-    padding-bottom: 24px;
-    min-height: 100vh;
+    margin-top: 96px;
+    padding: 24px;
+    min-height: calc(100vh - 96px);
+    overflow-y: auto;
+    box-sizing: border-box;
 }
 
 @media (max-width: 768px) {

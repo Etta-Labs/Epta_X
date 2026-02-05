@@ -465,6 +465,52 @@ async function loadPipelineStats() {
     } catch (error) {
         console.error('Error loading pipeline stats:', error);
     }
+    
+    // Load test runs stats
+    loadTestRunsStats();
+}
+
+// Load test runs statistics for dashboard widget
+async function loadTestRunsStats() {
+    try {
+        const response = await fetch('/api/tests/runs', { credentials: 'include' });
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        const runs = data.runs || [];
+        
+        // Calculate totals from all runs
+        let totalTests = 0, passed = 0, failed = 0;
+        let coverageSum = 0, coverageCount = 0;
+        
+        runs.forEach(run => {
+            totalTests += run.total_tests || 0;
+            passed += run.passed || 0;
+            failed += run.failed || 0;
+            if (run.coverage !== null && run.coverage !== undefined) {
+                coverageSum += run.coverage;
+                coverageCount++;
+            }
+        });
+        
+        // Update widget elements
+        const widgetTotal = document.getElementById('widget-total-tests');
+        const widgetPassed = document.getElementById('widget-passed-tests');
+        const widgetFailed = document.getElementById('widget-failed-tests');
+        const widgetCoverage = document.getElementById('widget-coverage');
+        
+        if (widgetTotal) widgetTotal.textContent = totalTests;
+        if (widgetPassed) widgetPassed.textContent = passed;
+        if (widgetFailed) widgetFailed.textContent = failed;
+        if (widgetCoverage) {
+            widgetCoverage.textContent = coverageCount > 0 
+                ? `${Math.round(coverageSum / coverageCount)}%` 
+                : '--%';
+        }
+        
+    } catch (error) {
+        console.error('Error loading test runs stats:', error);
+    }
 }
 
 if (window.electronAPI && window.electronAPI.onThemeChanged) {

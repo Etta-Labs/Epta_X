@@ -1,3 +1,11 @@
+import sys
+import os
+
+# Add project root to path for backend module imports
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from fastapi import FastAPI, Request, HTTPException, Depends, status, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
@@ -8,7 +16,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import httpx
-import os
 import secrets
 import hashlib
 import time
@@ -46,6 +53,9 @@ from backend.api.diff_analyzer import (
     DiffAnalyzer, analyze_commits, analyze_from_webhook
 )
 
+# Import test pipeline API router
+from backend.api.test_pipeline import router as test_pipeline_router
+
 # Environment configuration
 ENV = os.getenv("APP_ENV", "development")  # "development" | "production"
 IS_PRODUCTION = ENV == "production"
@@ -69,6 +79,8 @@ CSRF_STATE_EXPIRY = 600  # 10 minutes
 
 app = FastAPI()
 
+# Include test pipeline router
+app.include_router(test_pipeline_router)
 
 # Security Headers Middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -235,6 +247,10 @@ async def check_user_exists(request: Request):
 @app.post("/api/setup/create-user")
 async def create_user_from_github(request: Request):
     """Create a new user from GitHub authentication"""
+    print("=== CREATE USER ENDPOINT CALLED ===")
+    print(f"All cookies: {dict(request.cookies)}")
+    print(f"Headers: {dict(request.headers)}")
+    
     token = request.cookies.get("github_token")
     
     if not token:
@@ -588,6 +604,9 @@ async def set_auth_token(request: Request, body: TokenRequest):
     This endpoint is called by the Electron app after receiving the token
     via the custom protocol (deep link). It sets the cookie in the webview.
     """
+    print("=== SET TOKEN ENDPOINT CALLED ===")
+    print(f"Token received: {body.token[:20] if body.token else 'None'}...")
+    
     access_token = body.token
     
     # Verify the token is valid by fetching user info
@@ -656,10 +675,14 @@ async def set_auth_token(request: Request, body: TokenRequest):
         """, (user_id, session_token, access_token, expires_at.isoformat()))
         conn.commit()
     
+    # Mark setup as complete since user is now authenticated
+    mark_setup_complete()
+    
     print(f"Session created for user {user_data.get('login')} (id={user_id})")
     
     response = JSONResponse(content={
         "success": True,
+        "setupComplete": True,
         "user": {
             "login": user_data.get("login"),
             "name": user_data.get("name"),
@@ -1285,6 +1308,195 @@ async def delete_repository_webhook(owner: str, repo: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== RISK KEYWORD DETECTOR ====================
+
+# Sensitive domain keywords with their risk boost scores
+RISK_KEYWORDS = {
+    # Authentication/Security - HIGH RISK (+25)
+    'security': {
+        'keywords': ['auth', 'login', 'logout', 'password', 'passwd', 'pwd', 'token', 'session', 
+                     'jwt', 'oauth', 'credential', 'secret', 'api_key', 'apikey', 'private_key',
+                     'encrypt', 'decrypt', 'hash', 'salt', 'bcrypt', 'argon2', 'permission',
+                     'role', 'access_control', 'acl', 'rbac', 'authenticate', 'authorize'],
+        'boost': 0.25,
+        'label': 'Authentication/Security logic detected'
+    },
+    # Financial/Payment - HIGHEST RISK (+30)
+    'financial': {
+        'keywords': ['payment', 'pay', 'wallet', 'transfer', 'balance', 'money', 'currency',
+                     'transaction', 'credit', 'debit', 'invoice', 'billing', 'checkout',
+                     'stripe', 'paypal', 'refund', 'charge', 'subscription', 'price',
+                     'amount', 'fee', 'discount', 'coupon', 'order_total', 'cart_total'],
+        'boost': 0.30,
+        'label': 'Financial/Payment logic detected'
+    },
+    # State Mutation - MEDIUM RISK (+15)
+    'state_mutation': {
+        'keywords': ['delete', 'remove', 'destroy', 'drop', 'truncate', 'update', 'modify',
+                     'alter', 'insert', 'create', 'write', 'commit', 'rollback', 'migrate',
+                     'bulk_update', 'bulk_delete', 'batch_insert', 'cascade'],
+        'boost': 0.15,
+        'label': 'State mutation operations detected'
+    },
+    # Permission/Access - HIGH RISK (+20)
+    'permission': {
+        'keywords': ['is_admin', 'is_superuser', 'has_permission', 'check_permission',
+                     'grant', 'revoke', 'elevate', 'sudo', 'root', 'admin_only',
+                     'require_auth', 'require_admin', 'protected', 'restricted'],
+        'boost': 0.20,
+        'label': 'Permission/Access control changes detected'
+    },
+    # Error Handling - MEDIUM RISK (+10)
+    'error_handling': {
+        'keywords': ['try', 'catch', 'except', 'finally', 'raise', 'throw', 'error',
+                     'exception', 'failure', 'fallback', 'retry', 'timeout'],
+        'boost': 0.10,
+        'label': 'Error handling logic detected',
+        'threshold': 5  # Only trigger if >5 occurrences
+    },
+    # Database Critical - HIGH RISK (+20)
+    'database_critical': {
+        'keywords': ['foreign_key', 'primary_key', 'index', 'constraint', 'schema',
+                     'migration', 'alter_table', 'drop_table', 'create_table',
+                     'add_column', 'drop_column', 'rename_column'],
+        'boost': 0.20,
+        'label': 'Database schema changes detected'
+    },
+    # API Endpoints - MEDIUM RISK (+12)
+    'api_endpoints': {
+        'keywords': ['@app.post', '@app.put', '@app.delete', '@router.post', '@router.put',
+                     '@router.delete', 'api_view', 'rest_framework', 'serializer',
+                     'endpoint', 'route'],
+        'boost': 0.12,
+        'label': 'API endpoint modifications detected'
+    }
+}
+
+
+def detect_risk_keywords(diff_content: str, file_content: str = '') -> dict:
+    """
+    Detect sensitive keywords in code changes and calculate risk boosts.
+    
+    Args:
+        diff_content: The git diff text containing added/removed lines
+        file_content: Optional full file content for additional context
+        
+    Returns:
+        Dictionary with:
+        - total_boost: Sum of all risk boosts (capped at 0.5)
+        - detected_domains: List of detected risk domains
+        - keyword_matches: Detailed matches per domain
+        - risk_factors: Human-readable risk factors for UI
+    """
+    combined_content = (diff_content + ' ' + file_content).lower()
+    
+    detected_domains = []
+    keyword_matches = {}
+    risk_factors = []
+    total_boost = 0.0
+    
+    for domain, config in RISK_KEYWORDS.items():
+        keywords = config['keywords']
+        boost = config['boost']
+        label = config['label']
+        threshold = config.get('threshold', 1)
+        
+        # Count keyword occurrences
+        matches = []
+        total_count = 0
+        for kw in keywords:
+            count = combined_content.count(kw)
+            if count > 0:
+                matches.append({'keyword': kw, 'count': count})
+                total_count += count
+        
+        # Apply boost if threshold met
+        if total_count >= threshold:
+            detected_domains.append(domain)
+            keyword_matches[domain] = {
+                'matches': matches,
+                'total_count': total_count,
+                'boost_applied': boost
+            }
+            risk_factors.append(f"{label} (+{int(boost*100)}%)")
+            total_boost += boost
+    
+    # Cap total boost at 0.5 to prevent oversaturation
+    total_boost = min(total_boost, 0.50)
+    
+    return {
+        'total_boost': total_boost,
+        'detected_domains': detected_domains,
+        'keyword_matches': keyword_matches,
+        'risk_factors': risk_factors
+    }
+
+
+def calculate_structural_risk_score(analysis_result: dict) -> float:
+    """
+    Calculate base structural risk score from code metrics.
+    
+    This is the structural component before keyword boosts.
+    """
+    summary = analysis_result.get('summary', {})
+    changed_files = analysis_result.get('changed_files', [])
+    
+    score = 0.0
+    
+    # Lines changed (0 - 0.15)
+    lines_added = summary.get('total_lines_added', 0)
+    lines_deleted = summary.get('total_lines_deleted', 0)
+    total_lines = lines_added + lines_deleted
+    
+    if total_lines > 500:
+        score += 0.15
+    elif total_lines > 200:
+        score += 0.12
+    elif total_lines > 100:
+        score += 0.08
+    elif total_lines > 50:
+        score += 0.05
+    else:
+        score += 0.02
+    
+    # Files changed (0 - 0.10)
+    num_files = len(changed_files)
+    if num_files > 20:
+        score += 0.10
+    elif num_files > 10:
+        score += 0.08
+    elif num_files > 5:
+        score += 0.05
+    else:
+        score += 0.02
+    
+    # Changed nodes (functions/classes) complexity (0 - 0.10)
+    total_changed_nodes = sum(len(f.get('changed_nodes', [])) for f in changed_files)
+    if total_changed_nodes > 15:
+        score += 0.10
+    elif total_changed_nodes > 8:
+        score += 0.07
+    elif total_changed_nodes > 3:
+        score += 0.04
+    else:
+        score += 0.01
+    
+    # API/Route changes (0 - 0.08)
+    api_changes = any('api' in str(f.get('change_types', [])).lower() for f in changed_files)
+    if api_changes:
+        score += 0.08
+    
+    # Async code changes (0 - 0.05)
+    has_async = any(
+        any(n.get('is_async', False) for n in f.get('changed_nodes', []))
+        for f in changed_files
+    )
+    if has_async:
+        score += 0.05
+    
+    return min(score, 0.50)  # Cap structural score at 0.50
+
+
 # ==================== IMPACT ANALYSIS PIPELINE INTEGRATION ====================
 
 def extract_features_from_diff(analysis_result: dict, repo_full_name: str, branch: str, commit_sha: str) -> dict:
@@ -1371,6 +1583,30 @@ def extract_features_from_diff(analysis_result: dict, repo_full_name: str, branc
     if 'microservice' in repo_full_name.lower() or 'service' in repo_full_name.lower():
         repo_type = 'microservices'
     
+    # ==================== RISK KEYWORD DETECTION ====================
+    # Collect all diff content from changed files
+    diff_content = ''
+    for f in changed_files:
+        diff_content += f.get('diff', '') + ' '
+        # Also include changed node names and their context
+        for node in f.get('changed_nodes', []):
+            diff_content += node.get('name', '') + ' '
+            diff_content += node.get('docstring', '') or ''
+    
+    # Run keyword detection
+    keyword_result = detect_risk_keywords(diff_content, combined)
+    
+    # Calculate structural score
+    structural_score = calculate_structural_risk_score(analysis_result)
+    
+    # Combined risk score = structural + keyword boosts
+    keyword_boost = keyword_result['total_boost']
+    combined_risk_score = min(structural_score + keyword_boost, 0.95)
+    
+    print(f"[Risk Analysis] Structural: {structural_score:.2f}, Keyword Boost: {keyword_boost:.2f}, Combined: {combined_risk_score:.2f}")
+    if keyword_result['detected_domains']:
+        print(f"[Risk Analysis] Detected domains: {', '.join(keyword_result['detected_domains'])}")
+    
     # Build feature dict matching ImpactAnalysisRequest
     return {
         'lines_changed': lines_changed,
@@ -1390,7 +1626,13 @@ def extract_features_from_diff(analysis_result: dict, repo_full_name: str, branc
         'repository': repo_full_name,
         'branch': branch,
         'commit_id': commit_sha,
-        'files_list': [f.get('path', '') for f in changed_files]
+        'files_list': [f.get('path', '') for f in changed_files],
+        # New risk keyword detection fields
+        'keyword_risk_boost': keyword_boost,
+        'structural_risk_score': structural_score,
+        'combined_risk_score': combined_risk_score,
+        'detected_risk_domains': keyword_result['detected_domains'],
+        'risk_factors_from_keywords': keyword_result['risk_factors']
     }
 
 
@@ -1398,6 +1640,8 @@ def run_impact_analysis_from_features(features: dict) -> dict:
     """
     Run ML-based impact analysis using extracted features.
     Returns impact analysis result dict.
+    
+    Now includes risk keyword detection boosts.
     """
     global _impact_model, _model_features, _model_threshold
     
@@ -1407,14 +1651,26 @@ def run_impact_analysis_from_features(features: dict) -> dict:
     # Create request object
     request = ImpactAnalysisRequest(**{k: v for k, v in features.items() if k in ImpactAnalysisRequest.__fields__})
     
-    if model is None:
-        # Fallback to rule-based analysis
-        risk_score = calculate_rule_based_risk(request)
+    # Check if we have pre-computed keyword risk score
+    keyword_boost = features.get('keyword_risk_boost', 0.0)
+    risk_factors_from_keywords = features.get('risk_factors_from_keywords', [])
+    combined_risk_score = features.get('combined_risk_score', None)
+    
+    if combined_risk_score is not None:
+        # Use pre-computed combined score (structural + keywords)
+        risk_score = combined_risk_score
+        print(f"[Impact Analysis] Using pre-computed risk score: {risk_score:.2f}")
+    elif model is None:
+        # Fallback to rule-based analysis + keyword boost
+        base_risk = calculate_rule_based_risk(request)
+        risk_score = min(base_risk + keyword_boost, 0.95)
+        print(f"[Impact Analysis] Rule-based: {base_risk:.2f} + keyword boost: {keyword_boost:.2f} = {risk_score:.2f}")
     else:
-        # Prepare input for ML model
+        # ML model prediction + keyword boost
         X = prepare_model_input(request)
-        # Get probability prediction
-        risk_score = float(model.predict_proba(X)[0, 1])
+        ml_risk = float(model.predict_proba(X)[0, 1])
+        risk_score = min(ml_risk + keyword_boost, 0.95)
+        print(f"[Impact Analysis] ML prediction: {ml_risk:.2f} + keyword boost: {keyword_boost:.2f} = {risk_score:.2f}")
     
     # Determine risk level and color
     if risk_score >= 0.7:
@@ -1430,8 +1686,20 @@ def run_impact_analysis_from_features(features: dict) -> dict:
     # Get recommended action
     recommended_action, justification = get_recommended_action(risk_score, request)
     
-    # Get impact factors
+    # Get impact factors - merge with keyword-based factors
     impact_factors = get_top_impact_factors(request, risk_score)
+    
+    # Add keyword-detected risk factors to the top
+    if risk_factors_from_keywords:
+        impact_factors = risk_factors_from_keywords + impact_factors
+        # Keep only top 5 unique factors
+        seen = set()
+        unique_factors = []
+        for f in impact_factors:
+            if f not in seen:
+                seen.add(f)
+                unique_factors.append(f)
+        impact_factors = unique_factors[:5]
     
     # Calculate affected surface
     apis_impacted = 0
@@ -1462,7 +1730,10 @@ def run_impact_analysis_from_features(features: dict) -> dict:
         'action_justification': justification,
         'top_impact_factors': impact_factors,
         'test_selection_status': 'suggested',
-        'ci_execution_state': 'Pending'
+        'ci_execution_state': 'Pending',
+        # Include keyword detection info for transparency
+        'detected_risk_domains': features.get('detected_risk_domains', []),
+        'keyword_risk_boost': keyword_boost
     }
 
 
@@ -1558,15 +1829,131 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
                 "logical_changes": {}
             }
         
+        # STEP 5: Auto-trigger test generation for high-risk changes
+        test_generation_result = None
+        risk_level = impact_result.get('risk_level', '').lower()
+        if risk_level in ['high', 'medium']:
+            print(f"[Pipeline] Step 5: Auto-triggering test generation (risk: {impact_result.get('risk_level')})...")
+            try:
+                from backend.model.LLM import generate_tests, prioritize_tests
+                
+                # Build rich code description from diff analysis
+                files_changed = analysis_result.get('files', [])
+                risk_domains = impact_result.get('detected_risk_domains', [])
+                
+                code_description = f"Security-sensitive code changes detected.\n"
+                code_description += f"Risk Level: {impact_result.get('risk_level')} ({impact_result.get('risk_score', 0):.2f})\n"
+                code_description += f"Risk Domains: {', '.join(risk_domains)}\n\n"
+                code_description += f"Files changed:\n"
+                
+                for f in files_changed[:5]:  # Limit to 5 files
+                    filename = f.get('filename', 'unknown')
+                    code_description += f"\nFile: {filename}\n"
+                    code_description += f"Status: {f.get('status', 'modified')}\n"
+                    
+                    # Add function/class names from logical changes
+                    logical_changes = f.get('logical_changes', [])
+                    if logical_changes:
+                        code_description += "Functions/Methods:\n"
+                        for change in logical_changes[:5]:
+                            change_type = change.get('type', 'change')
+                            desc = change.get('description', change.get('name', ''))
+                            code_description += f"  - {change_type}: {desc}\n"
+                
+                print(f"[Pipeline] Code description for LLM ({len(code_description)} chars)")
+                
+                # Generate tests
+                gen_result = generate_tests(code_description, language="python")
+                
+                # Check if we have tests (success can be True, False, or None)
+                tests_generated = gen_result.get('tests', [])
+                if tests_generated:
+                    print(f"[Pipeline] LLM generated {len(tests_generated)} tests")
+                    
+                    # Prioritize tests
+                    priority_result = prioritize_tests(
+                        tests=tests_generated,
+                        change_risk_score=impact_result.get('risk_score', 0.5),
+                        files_changed=len(files_changed),
+                        critical_module=risk_level == 'high'
+                    )
+                    
+                    # Get all prioritized tests with scores (sorted by priority)
+                    all_prioritized = priority_result.get('all_tests', tests_generated)
+                    selected_tests = priority_result.get('selected_tests', [])
+                    
+                    test_generation_result = {
+                        "success": True,
+                        "auto_generated": True,
+                        "source": "ollama",
+                        "test_count": len(all_prioritized),
+                        "tests": all_prioritized,
+                        "selected_tests": selected_tests,
+                        "selected_count": priority_result.get('selected_count', 0),
+                        "priority_level": priority_result.get('priority_level', 'all'),
+                        "generation_time_ms": gen_result.get('generation_time_ms', 0)
+                    }
+                    print(f"[Pipeline] Prioritized {len(all_prioritized)} tests, {len(selected_tests)} selected as important")
+                else:
+                    print(f"[Pipeline] LLM test generation returned: success={gen_result.get('success')}, error={gen_result.get('error')}")
+                    # Fallback: Generate basic tests from detected domains
+                    fallback_tests = []
+                    for domain in risk_domains:
+                        if domain == 'security':
+                            fallback_tests.append({
+                                "name": "test_auth_required",
+                                "endpoint": "/api/endpoint",
+                                "method": "POST",
+                                "payload": {},
+                                "expected_status": 401,
+                                "description": "Verify authentication is required"
+                            })
+                        if domain == 'financial':
+                            fallback_tests.append({
+                                "name": "test_payment_validation",
+                                "endpoint": "/api/payment",
+                                "method": "POST",
+                                "payload": {"amount": -100},
+                                "expected_status": 400,
+                                "description": "Verify negative amounts are rejected"
+                            })
+                        if domain == 'permission':
+                            fallback_tests.append({
+                                "name": "test_unauthorized_access",
+                                "endpoint": "/api/admin",
+                                "method": "GET",
+                                "payload": {},
+                                "expected_status": 403,
+                                "description": "Verify proper authorization checks"
+                            })
+                    if fallback_tests:
+                        test_generation_result = {
+                            "auto_generated": True,
+                            "source": "fallback",
+                            "test_count": len(fallback_tests),
+                            "tests": fallback_tests,
+                            "selected_count": len(fallback_tests),
+                            "note": "Generated from risk domain analysis (LLM unavailable)"
+                        }
+                        print(f"[Pipeline] Generated {len(fallback_tests)} fallback tests from risk domains")
+                    
+            except ImportError as e:
+                print(f"[Pipeline] LLM module not available for auto-generation: {e}")
+            except Exception as e:
+                import traceback
+                print(f"[Pipeline] Auto test generation failed: {e}")
+                traceback.print_exc()
+        
         # Combine results
         combined_result = {
             "diff_analysis": analysis_result,
             "impact_analysis": impact_result,
+            "test_generation": test_generation_result,
             "pipeline_status": "completed",
             "processed_at": datetime.now().isoformat()
         }
         
-        # STEP 5: Mark as processed with results
+        # STEP 6: Mark as processed with results
         result_json = json.dumps(combined_result)
         mark_webhook_event_processed(event_id, result_json)
         print(f"[Pipeline] ========== Event {event_id} processing complete ==========")
@@ -2713,62 +3100,93 @@ async def run_impact_analysis(request_body: ImpactAnalysisRequest, request: Requ
 
 
 def calculate_rule_based_risk(request: ImpactAnalysisRequest) -> float:
-    """Fallback rule-based risk calculation when ML model is unavailable"""
+    """
+    Enhanced rule-based risk calculation with domain-specific boosts.
+    
+    Scoring components:
+    - Structural score: lines, files, dependencies (0 - 0.50)
+    - Domain score: auth, payment, etc. based on function_category (0 - 0.30)
+    - Coverage/history score: test coverage, failure history (0 - 0.20)
+    """
     risk = 0.0
     
-    # Lines changed factor (0-0.2)
+    # ==================== STRUCTURAL SCORE (max 0.35) ====================
+    
+    # Lines changed factor (0-0.12)
     if request.lines_changed > 500:
-        risk += 0.2
+        risk += 0.12
     elif request.lines_changed > 200:
-        risk += 0.15
+        risk += 0.10
+    elif request.lines_changed > 100:
+        risk += 0.07
     elif request.lines_changed > 50:
-        risk += 0.1
-    else:
         risk += 0.05
+    else:
+        risk += 0.02
     
-    # Files changed factor (0-0.15)
+    # Files changed factor (0-0.10)
     if request.files_changed > 20:
-        risk += 0.15
+        risk += 0.10
     elif request.files_changed > 10:
-        risk += 0.1
+        risk += 0.08
     elif request.files_changed > 5:
-        risk += 0.08
+        risk += 0.05
     else:
-        risk += 0.03
+        risk += 0.02
     
-    # Dependency depth factor (0-0.15)
-    risk += min(request.dependency_depth * 0.03, 0.15)
+    # Dependency depth factor (0-0.08)
+    risk += min(request.dependency_depth * 0.02, 0.08)
     
-    # Shared component factor (0-0.1)
+    # Shared component factor (0-0.05)
     if request.shared_component:
-        risk += 0.1
-    
-    # Historical failure factor (0-0.15)
-    risk += min(request.historical_failure_count * 0.015, 0.15)
-    
-    # Test coverage factor (0-0.1)
-    if request.test_coverage_level == 'low':
-        risk += 0.1
-    elif request.test_coverage_level == 'medium':
         risk += 0.05
     
-    # Change type factor (0-0.1)
-    if request.change_type == 'API_CHANGE':
-        risk += 0.1
-    elif request.change_type == 'SERVICE_LOGIC_CHANGE':
-        risk += 0.08
-    elif request.change_type == 'UI_CHANGE':
-        risk += 0.05
+    # ==================== DOMAIN SCORE (max 0.40) ====================
+    
+    # Function category - ENHANCED SCORING
+    function_category = request.function_category.lower() if request.function_category else 'misc'
+    
+    # Authentication/Security domain (+25%)
+    if function_category in ['auth', 'authentication', 'security', 'login', 'session']:
+        risk += 0.25
+    # Financial/Payment domain (+30%)
+    elif function_category in ['payment', 'billing', 'transaction', 'wallet', 'finance']:
+        risk += 0.30
+    # Admin/Permission domain (+20%)
+    elif function_category in ['admin', 'permission', 'access', 'role']:
+        risk += 0.20
+    # User data domain (+15%)
+    elif function_category in ['profile', 'user', 'account', 'settings']:
+        risk += 0.15
+    # Search/Query domain (+10%)
+    elif function_category in ['search', 'query', 'filter', 'analytics']:
+        risk += 0.10
     else:
         risk += 0.03
     
-    # Function category factor (0-0.1)
-    if request.function_category in ['auth', 'payment']:
-        risk += 0.1
-    elif request.function_category in ['profile', 'admin']:
-        risk += 0.05
+    # Change type factor (0-0.10)
+    if request.change_type == 'API_CHANGE':
+        risk += 0.10
+    elif request.change_type == 'SERVICE_LOGIC_CHANGE':
+        risk += 0.07
+    elif request.change_type == 'UI_CHANGE':
+        risk += 0.04
+    else:
+        risk += 0.02
     
-    return min(risk, 1.0)
+    # ==================== COVERAGE/HISTORY SCORE (max 0.20) ====================
+    
+    # Historical failure factor (0-0.10)
+    risk += min(request.historical_failure_count * 0.02, 0.10)
+    
+    # Test coverage factor (0-0.10)
+    if request.test_coverage_level == 'low':
+        risk += 0.10
+    elif request.test_coverage_level == 'medium':
+        risk += 0.04
+    # high coverage adds no risk
+    
+    return min(risk, 0.95)  # Cap at 95%
 
 
 @app.get("/api/impact-analysis/features")
@@ -2781,7 +3199,8 @@ async def get_impact_analysis_features(request: Request):
         "numerical_features": REQUIRED_NUMERICAL_FEATURES,
         "categorical_features": REQUIRED_CATEGORICAL_FEATURES,
         "model_loaded": _impact_model is not None,
-        "threshold": _model_threshold
+        "threshold": _model_threshold,
+        "risk_keywords": list(RISK_KEYWORDS.keys())
     }
 
 
@@ -3058,3 +3477,182 @@ async def get_pipeline_event_detail(event_id: int, request: Request):
 async def impact_analysis_page():
     """Serve the impact analysis page"""
     return FileResponse("frontend/pages/impact_analysis.html")
+
+
+@app.post("/api/sync/commits")
+async def sync_commits_from_github(request: Request, repository: Optional[str] = None):
+    """
+    Sync recent commits from GitHub API directly.
+    This bypasses webhooks and fetches commits directly from GitHub.
+    """
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        synced_count = 0
+        errors = []
+        
+        async with httpx.AsyncClient() as client:
+            # Get user's repos if no specific repo provided
+            if repository:
+                repos_to_sync = [repository]
+            else:
+                # Get connected repos from database
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT full_name FROM repositories")
+                    repos_to_sync = [row[0] for row in cursor.fetchall()]
+            
+            if not repos_to_sync:
+                return {"synced": 0, "message": "No repositories connected"}
+            
+            for repo_full_name in repos_to_sync:
+                try:
+                    owner, repo = repo_full_name.split('/')
+                    
+                    # Fetch recent commits from GitHub
+                    commits_response = await client.get(
+                        f"https://api.github.com/repos/{owner}/{repo}/commits",
+                        params={"per_page": 20},
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Accept": "application/vnd.github.v3+json",
+                        },
+                    )
+                    
+                    if commits_response.status_code != 200:
+                        errors.append(f"{repo_full_name}: Failed to fetch commits")
+                        continue
+                    
+                    commits = commits_response.json()
+                    
+                    for commit in commits:
+                        commit_sha = commit['sha']
+                        
+                        # Check if we already have this commit
+                        existing = get_webhook_event_by_delivery_id(f"sync-{commit_sha}")
+                        if existing:
+                            continue
+                        
+                        # Also check by commit_sha
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "SELECT id FROM webhook_events WHERE commit_sha = ?",
+                                (commit_sha,)
+                            )
+                            if cursor.fetchone():
+                                continue
+                        
+                        # Get the parent SHA for diff
+                        parent_sha = commit['parents'][0]['sha'] if commit.get('parents') else None
+                        
+                        # Create a synthetic webhook event
+                        event_data = {
+                            "github_delivery_id": f"sync-{commit_sha}",
+                            "event_type": "push",
+                            "repository_full_name": repo_full_name,
+                            "branch": "main",
+                            "commit_sha": commit_sha,
+                            "before_sha": parent_sha,
+                            "payload": json.dumps({
+                                "ref": "refs/heads/main",
+                                "after": commit_sha,
+                                "before": parent_sha,
+                                "repository": {"full_name": repo_full_name},
+                                "commits": [{
+                                    "id": commit_sha,
+                                    "message": commit['commit']['message'],
+                                    "author": commit['commit']['author'],
+                                    "added": [],
+                                    "modified": [],
+                                    "removed": []
+                                }],
+                                "head_commit": {
+                                    "id": commit_sha,
+                                    "message": commit['commit']['message']
+                                }
+                            })
+                        }
+                        
+                        # Create the event in database
+                        event_id = create_webhook_event(
+                            webhook_id=1,
+                            github_delivery_id=event_data["github_delivery_id"],
+                            event_type=event_data["event_type"],
+                            repository_full_name=event_data["repository_full_name"],
+                            branch=event_data["branch"],
+                            commit_sha=event_data["commit_sha"],
+                            before_sha=event_data["before_sha"],
+                            payload=event_data["payload"]
+                        )
+                        
+                        if event_id:
+                            synced_count += 1
+                            
+                            # Process the event immediately
+                            try:
+                                # Get diff from GitHub
+                                diff_response = await client.get(
+                                    f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_sha}",
+                                    headers={
+                                        "Authorization": f"Bearer {token}",
+                                        "Accept": "application/vnd.github.v3.diff",
+                                    },
+                                )
+                                
+                                if diff_response.status_code == 200:
+                                    diff_content = diff_response.text
+                                    
+                                    # Run impact analysis
+                                    features = extract_features_from_diff(diff_content)
+                                    analysis_result = run_impact_analysis_from_features(features)
+                                    
+                                    # Store the result
+                                    processing_result = {
+                                        "pipeline_status": "completed",
+                                        "diff_analysis": features,
+                                        "impact_analysis": analysis_result
+                                    }
+                                    
+                                    mark_webhook_event_processed(
+                                        event_id,
+                                        json.dumps(processing_result)
+                                    )
+                            except Exception as proc_error:
+                                print(f"Error processing commit {commit_sha}: {proc_error}")
+                                
+                except Exception as repo_error:
+                    errors.append(f"{repo_full_name}: {str(repo_error)}")
+        
+        return {
+            "synced": synced_count,
+            "repositories": repos_to_sync,
+            "errors": errors if errors else None,
+            "message": f"Synced {synced_count} new commits"
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/test-runs", response_class=HTMLResponse)
+async def test_runs_page():
+    """Serve the test runs page"""
+    return FileResponse("frontend/pages/test_runs.html")
+
+
+@app.get("/failures", response_class=HTMLResponse)
+async def failures_page():
+    """Serve the failures page"""
+    return FileResponse("frontend/pages/failures.html")
+
+
+@app.get("/self-healing", response_class=HTMLResponse)
+async def self_healing_page():
+    """Serve the self-healing page"""
+    return FileResponse("frontend/pages/self_healing.html")

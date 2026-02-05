@@ -941,7 +941,7 @@
                 showLoading('Completing authentication...');
 
                 try {
-                    // Set the token via API
+                    // Set the token via API - this also creates/updates user and marks setup complete
                     const response = await fetch('/auth/set-token', {
                         method: 'POST',
                         headers: {
@@ -952,32 +952,16 @@
                     });
 
                     if (response.ok) {
-                        // Token set successfully - now create the user in DB
-                        showLoading('Creating your account...');
+                        const result = await response.json();
+                        console.log('Auth complete:', result);
+                        
+                        // Mark setup complete in localStorage
+                        localStorage.setItem('setupComplete', 'true');
 
-                        // Create/Confirm user
-                        const createResponse = await fetch('/api/setup/create-user', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            credentials: 'include'
-                        });
-
-                        if (createResponse.ok) {
-                            // Mark setup complete (for next check)
-                            localStorage.setItem('setupComplete', 'true');
-
-                            showLoading('Setup complete! Redirecting to dashboard...');
-                            setTimeout(() => {
-                                window.location.href = '/dashboard';
-                            }, 1500);
-                        } else {
-                            hideLoading();
-                            const errorData = await createResponse.json().catch(() => ({}));
-                            console.error('Create user failed:', errorData);
-                            showError(errorData.detail || 'Failed to create account. Please try again.');
-                        }
+                        showLoading('Setup complete! Redirecting to dashboard...');
+                        setTimeout(() => {
+                            window.location.href = '/dashboard';
+                        }, 1500);
                     } else {
                         hideLoading();
                         const errorData = await response.json().catch(() => ({}));

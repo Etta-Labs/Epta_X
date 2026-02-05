@@ -2,21 +2,26 @@
 
 /* Page Container */
 .impact-analysis-container {
-    padding: 24px;
-    max-width: 1800px;
-    margin: 0 auto;
+    max-width: 100%;
+    margin: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 /* Page Header Section */
 .page-header-section {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
+    flex-shrink: 0;
 }
 
 .page-title-row {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
 }
 
 .page-title h1 {
@@ -170,14 +175,24 @@
 /* Main Layout */
 .analysis-layout {
     display: grid;
-    grid-template-columns: 480px 1fr;
-    gap: 24px;
-    align-items: start;
+    grid-template-columns: minmax(360px, 450px) 1fr;
+    gap: 20px;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
+    .analysis-layout {
+        grid-template-columns: minmax(320px, 380px) 1fr;
+    }
+}
+
+@media (max-width: 1100px) {
     .analysis-layout {
         grid-template-columns: 1fr;
+        overflow-y: auto;
     }
 }
 
@@ -186,6 +201,11 @@
     background: #ffffff;
     border: 1px solid #e5e7eb;
     border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
     overflow: hidden;
 }
 
@@ -256,11 +276,50 @@
     color: #9ca3af;
 }
 
+/* Sync Button */
+.sync-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.sync-btn:hover {
+    background: #2563eb;
+}
+
+.sync-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.sync-btn.syncing svg {
+    animation: spin 1s linear infinite;
+}
+
+.sync-btn svg.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 /* Results List */
 .results-list {
-    max-height: calc(100vh - 400px);
+    flex: 1;
     overflow-y: auto;
-    min-height: 300px;
+    min-height: 0;
 }
 
 /* Loading State */
@@ -465,9 +524,8 @@
     background: #ffffff;
     border: 1px solid #e5e7eb;
     border-radius: 12px;
-    overflow: hidden;
-    position: sticky;
-    top: 80px;
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .detail-placeholder {
@@ -887,4 +945,12 @@ body.dark-theme .scope-tag {
 
 body.dark-theme .action-text {
     color: #f3f4f6;
+}
+
+body.dark-theme .sync-btn {
+    background: #2563eb;
+}
+
+body.dark-theme .sync-btn:hover {
+    background: #1d4ed8;
 }

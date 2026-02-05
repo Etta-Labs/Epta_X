@@ -4,8 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETTA-X - Impact Analysis</title>
-    <!-- Apply theme immediately to prevent white flash -->
+    <title>ETTA-X - Test Runs</title>
     <script>
         (function() {
             const savedTheme = localStorage.getItem('theme');
@@ -18,10 +17,9 @@
         })();
     </script>
     <link rel="stylesheet" href="/static/stlye.css">
-    <link rel="stylesheet" href="/static/impact_analysis.css">
+    <link rel="stylesheet" href="/static/test_runs.css">
     <link rel="icon" href="/static/assets/logo.ico" type="image/x-icon">
     <style>
-        /* Apply dark theme to html element for early rendering */
         html.dark-theme body {
             background-color: #121212;
         }
@@ -93,19 +91,17 @@
                 <span>ETTA-X</span>
             </div>
             <span class="separator">|</span>
-            <span class="platform-description">Impact Analysis</span>
+            <span class="platform-description">Test Runs</span>
         </div>
         <div class="header-spacer"></div>
         <div class="header-right">
             <div class="profile">
                 <div class="profile-dropdown-container">
-                    <img src="/static/assets/profile.png" alt="Profile" class="profile-icon" id="profile-toggle"
-                        width="40" height="40">
+                    <img src="/static/assets/profile.png" alt="Profile" class="profile-icon" id="profile-toggle" width="40" height="40">
                     <div class="profile-dropdown" id="profile-dropdown" style="display: none;">
                         <div class="logged-in-view" id="logged-in-view" style="display: none;">
                             <div class="profile-info">
-                                <img src="/static/assets/profile.png" alt="Profile" class="profile-dropdown-avatar"
-                                    id="profile-avatar" width="40" height="40">
+                                <img src="/static/assets/profile.png" alt="Profile" class="profile-dropdown-avatar" id="profile-avatar" width="40" height="40">
                                 <div class="profile-details">
                                     <span class="profile-name" id="profile-name">User</span>
                                     <span class="profile-username" id="profile-username">@username</span>
@@ -162,7 +158,7 @@
                 </svg>
                 <span>Repositories</span>
             </a>
-            <a href="/impact-analysis" class="menu-item active">
+            <a href="/impact-analysis" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"/>
                     <path d="M12 16v-4"/>
@@ -170,7 +166,7 @@
                 </svg>
                 <span>Impact Analysis</span>
             </a>
-            <a href="/test-runs" class="menu-item">
+            <a href="/test-runs" class="menu-item active">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10" />
                     <path d="M9 12l2 2 4-4" />
@@ -189,7 +185,6 @@
                     <line x1="12" y1="9" x2="12" y2="13" />
                     <line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
-                <span>Failures</span>
             </a>
             <div class="menu-item-dropdown">
                 <a href="#" class="menu-item" id="settings-toggle">
@@ -233,285 +228,220 @@
 
     <!-- Main Content -->
     <main class="main-content">
-        <div class="impact-analysis-container">
+        <div class="test-runs-container">
             <!-- Page Header with Stats -->
             <div class="page-header-section">
                 <div class="page-title-row">
                     <div class="page-title">
-                        <h1>Impact Analysis</h1>
-                        <p class="page-description">Automated risk analysis triggered on every commit via webhook pipeline</p>
+                        <h1>Test Runs</h1>
+                        <p class="page-description">AI-generated tests with ML-based prioritization</p>
                     </div>
                     <div class="header-actions">
-                        <button class="btn-refresh" id="refresh-btn" title="Refresh Results">
+                        <button class="btn-refresh" id="refresh-btn" title="Refresh">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="23 4 23 10 17 10"/>
                                 <polyline points="1 20 1 14 7 14"/>
                                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
                             </svg>
-                            <span>Refresh</span>
                         </button>
-                        <div class="auto-refresh-indicator" id="auto-refresh-indicator">
-                            <span class="pulse-dot"></span>
-                            <span>Live updates</span>
+                        <div class="llm-status" id="llm-status">
+                            <span class="status-dot"></span>
+                            <span class="status-text">LLM Status</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Pipeline Stats Cards -->
+                <!-- Stats Cards -->
                 <div class="stats-cards">
                     <div class="stat-card">
                         <div class="stat-icon total">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
                             </svg>
                         </div>
                         <div class="stat-info">
                             <span class="stat-value" id="stat-total">0</span>
-                            <span class="stat-label">Total Analyses</span>
+                            <span class="stat-label">Total Tests</span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon high-risk">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                                <line x1="12" y1="9" x2="12" y2="13"/>
-                                <line x1="12" y1="17" x2="12.01" y2="17"/>
-                            </svg>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="stat-high-risk">0</span>
-                            <span class="stat-label">High Risk</span>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon medium-risk">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="12" cy="12" r="10"/>
-                                <path d="M12 8v4"/>
-                                <path d="M12 16h.01"/>
-                            </svg>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="stat-medium-risk">0</span>
-                            <span class="stat-label">Medium Risk</span>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon low-risk">
+                        <div class="stat-icon passed">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                                 <polyline points="22 4 12 14.01 9 11.01"/>
                             </svg>
                         </div>
                         <div class="stat-info">
-                            <span class="stat-value" id="stat-low-risk">0</span>
-                            <span class="stat-label">Low Risk</span>
+                            <span class="stat-value" id="stat-passed">0</span>
+                            <span class="stat-label">Passed</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon failed">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="15" y1="9" x2="9" y2="15"/>
+                                <line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-failed">0</span>
+                            <span class="stat-label">Failed</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon coverage">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-coverage">--%</span>
+                            <span class="stat-label">Coverage</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Main Layout: List + Detail -->
-            <div class="analysis-layout">
-                <!-- Left Panel: Results List -->
-                <div class="results-list-panel">
-                    <!-- Filter Bar -->
-                    <div class="filter-bar">
+            <!-- Main Layout -->
+            <div class="test-layout">
+                <!-- Left Panel: Test List -->
+                <div class="tests-list-panel">
+                    <div class="panel-header">
+                        <h3>Generated Tests</h3>
                         <div class="filter-group">
-                            <select id="filter-risk" class="filter-select">
-                                <option value="all">All Risk Levels</option>
-                                <option value="high">High Risk</option>
-                                <option value="medium">Medium Risk</option>
-                                <option value="low">Low Risk</option>
+                            <select id="filter-priority" class="filter-select">
+                                <option value="all">All Priorities</option>
+                                <option value="high">High Priority</option>
+                                <option value="medium">Medium Priority</option>
+                                <option value="low">Low Priority</option>
                             </select>
-                            <select id="filter-repo" class="filter-select">
-                                <option value="all">All Repositories</option>
+                            <select id="filter-status" class="filter-select">
+                                <option value="all">All Status</option>
+                                <option value="passed">Passed</option>
+                                <option value="failed">Failed</option>
+                                <option value="pending">Pending</option>
                             </select>
-                        </div>
-                        <div class="filter-search">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="11" cy="11" r="8"/>
-                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                            </svg>
-                            <input type="text" id="filter-search" placeholder="Search commits, repos...">
                         </div>
                     </div>
 
-                    <!-- Results List -->
-                    <div class="results-list" id="results-list">
-                        <div class="loading-state" id="loading-state">
+                    <div class="tests-list" id="tests-list">
+                        <!-- Loading State -->
+                        <div class="loading-state" id="loading-state" style="display: none;">
                             <div class="spinner"></div>
-                            <span>Loading pipeline results...</span>
+                            <span>Loading tests...</span>
                         </div>
-                        <div class="empty-state" id="empty-state" style="display: none;">
+
+                        <!-- Empty State -->
+                        <div class="empty-state" id="empty-state">
                             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <circle cx="12" cy="12" r="10"/>
-                                <path d="M12 16v-4"/>
-                                <path d="M12 8h.01"/>
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
                             </svg>
-                            <h3>No Impact Analysis Results</h3>
-                            <p>Results will appear here automatically when commits trigger the webhook pipeline.</p>
-                            <div class="empty-state-info">
-                                <div class="info-item">
-                                    <span class="info-number">1</span>
-                                    <span>Connect a repository in the Repositories page</span>
-                                </div>
-                                <div class="info-item">
-                                    <span class="info-number">2</span>
-                                    <span>Configure the webhook on GitHub</span>
-                                </div>
-                                <div class="info-item">
-                                    <span class="info-number">3</span>
-                                    <span>Push commits to trigger analysis</span>
-                                </div>
-                            </div>
+                            <h3>No Tests Generated</h3>
+                            <p>Tests are automatically generated when high-risk changes are detected in the webhook pipeline.</p>
                         </div>
-                        <!-- Results will be dynamically inserted here -->
+
+                        <!-- Tests will be dynamically inserted here -->
                     </div>
                 </div>
 
-                <!-- Right Panel: Detail View -->
-                <div class="detail-panel" id="detail-panel">
+                <!-- Right Panel: Test Detail -->
+                <div class="test-detail-panel" id="test-detail-panel">
                     <div class="detail-placeholder" id="detail-placeholder">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                            <line x1="3" y1="9" x2="21" y2="9"/>
-                            <line x1="9" y1="21" x2="9" y2="9"/>
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M9 12l2 2 4-4"/>
                         </svg>
-                        <h3>Select an Analysis Result</h3>
-                        <p>Click on an item from the list to view detailed impact analysis</p>
+                        <h3>Select a Test</h3>
+                        <p>Click on a test from the list to view details, priority score, and execution results.</p>
                     </div>
 
-                    <div class="detail-content" id="detail-content" style="display: none;">
-                        <!-- Risk Score Header -->
-                        <div class="detail-header">
-                            <div class="risk-score-circle" id="detail-risk-circle">
-                                <span class="risk-value" id="detail-risk-value">--</span>
-                                <span class="risk-label">Risk Score</span>
+                    <div class="test-detail-content" id="test-detail-content" style="display: none;">
+                        <!-- Test Header -->
+                        <div class="test-detail-header">
+                            <div class="test-status-badge" id="detail-status-badge">
+                                <span class="status-icon"></span>
+                                <span class="status-text">Pending</span>
                             </div>
-                            <div class="detail-meta">
-                                <h2 id="detail-repo-name">Repository Name</h2>
-                                <div class="meta-row">
-                                    <span class="meta-item" id="detail-commit">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <circle cx="12" cy="12" r="4"/>
-                                            <line x1="1.05" y1="12" x2="7" y2="12"/>
-                                            <line x1="17.01" y1="12" x2="22.96" y2="12"/>
-                                        </svg>
-                                        <span>commit-hash</span>
-                                    </span>
-                                    <span class="meta-item" id="detail-branch">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <line x1="6" y1="3" x2="6" y2="15"/>
-                                            <circle cx="18" cy="6" r="3"/>
-                                            <circle cx="6" cy="18" r="3"/>
-                                            <path d="M18 9a9 9 0 0 1-9 9"/>
-                                        </svg>
-                                        <span>main</span>
-                                    </span>
-                                    <span class="meta-item" id="detail-time">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <circle cx="12" cy="12" r="10"/>
-                                            <polyline points="12 6 12 12 16 14"/>
-                                        </svg>
-                                        <span>Just now</span>
-                                    </span>
+                            <h2 id="detail-test-name">test_name</h2>
+                            <p class="test-description" id="detail-description">Test description</p>
+                        </div>
+
+                        <!-- Priority Score -->
+                        <div class="priority-section">
+                            <h4>Priority Score</h4>
+                            <div class="priority-display">
+                                <div class="priority-bar">
+                                    <div class="priority-fill" id="detail-priority-fill"></div>
+                                </div>
+                                <span class="priority-value" id="detail-priority-value">0%</span>
+                            </div>
+                            <div class="priority-factors" id="detail-priority-factors">
+                                <!-- Priority factors will be inserted here -->
+                            </div>
+                        </div>
+
+                        <!-- Test Details -->
+                        <div class="test-info-section">
+                            <h4>Test Configuration</h4>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <span class="info-label">Endpoint</span>
+                                    <span class="info-value" id="detail-endpoint">/api/endpoint</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Method</span>
+                                    <span class="info-value method-badge" id="detail-method">GET</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Expected Status</span>
+                                    <span class="info-value" id="detail-expected-status">200</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Category</span>
+                                    <span class="info-value category-badge" id="detail-category">functional</span>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Risk Level Badge -->
-                        <div class="detail-risk-badge" id="detail-risk-badge">
-                            <span class="badge-text">Risk Level</span>
+                        <!-- Payload -->
+                        <div class="payload-section">
+                            <h4>Request Payload</h4>
+                            <pre class="payload-code" id="detail-payload">{}</pre>
                         </div>
 
-                        <!-- Change Summary -->
-                        <div class="detail-section">
-                            <h3>
+                        <!-- Execution Result -->
+                        <div class="result-section" id="result-section" style="display: none;">
+                            <h4>Execution Result</h4>
+                            <div class="result-summary" id="result-summary">
+                                <!-- Results will be inserted here -->
+                            </div>
+                            <div class="result-output">
+                                <h5>Output Log</h5>
+                                <pre class="output-log" id="detail-output"></pre>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="test-actions">
+                            <button class="btn-run" id="btn-run-test" onclick="runSelectedTest()">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                    <polyline points="14 2 14 8 20 8"/>
+                                    <polygon points="5 3 19 12 5 21 5 3"/>
                                 </svg>
-                                Change Summary
-                            </h3>
-                            <div class="summary-grid" id="detail-summary">
-                                <div class="summary-item">
-                                    <span class="summary-label">Files Changed</span>
-                                    <span class="summary-value" id="detail-files">0</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">Lines Changed</span>
-                                    <span class="summary-value" id="detail-lines">0</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">Change Type</span>
-                                    <span class="summary-value" id="detail-change-type">--</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">Component</span>
-                                    <span class="summary-value" id="detail-component">--</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Recommended Action -->
-                        <div class="detail-section action-section">
-                            <h3>
+                                Run Test
+                            </button>
+                            <button class="btn-secondary" id="btn-view-code" onclick="viewTestCode()">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <circle cx="12" cy="12" r="10"/>
-                                    <polyline points="12 6 12 12 16 14"/>
+                                    <polyline points="16 18 22 12 16 6"/>
+                                    <polyline points="8 6 2 12 8 18"/>
                                 </svg>
-                                Recommended Action
-                            </h3>
-                            <div class="action-box" id="detail-action">
-                                <div class="action-icon">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                        <polyline points="22 4 12 14.01 9 11.01"/>
-                                    </svg>
-                                </div>
-                                <div class="action-text" id="detail-action-text">Loading...</div>
-                            </div>
-                        </div>
-
-                        <!-- Affected Scope -->
-                        <div class="detail-section">
-                            <h3>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                    <line x1="3" y1="9" x2="21" y2="9"/>
-                                    <line x1="9" y1="21" x2="9" y2="9"/>
-                                </svg>
-                                Affected Scope
-                            </h3>
-                            <div class="scope-items" id="detail-scope">
-                                <p class="no-scope">No specific scope detected</p>
-                            </div>
-                        </div>
-
-                        <!-- Pipeline Info -->
-                        <div class="detail-section">
-                            <h3>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <line x1="22" y1="12" x2="2" y2="12"/>
-                                    <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
-                                </svg>
-                                Pipeline Info
-                            </h3>
-                            <div class="pipeline-info" id="detail-pipeline">
-                                <div class="pipeline-item">
-                                    <span class="pipeline-label">Event Type</span>
-                                    <span class="pipeline-value" id="detail-event-type">push</span>
-                                </div>
-                                <div class="pipeline-item">
-                                    <span class="pipeline-label">Triggered By</span>
-                                    <span class="pipeline-value" id="detail-author">--</span>
-                                </div>
-                                <div class="pipeline-item">
-                                    <span class="pipeline-label">Analysis Time</span>
-                                    <span class="pipeline-value" id="detail-analysis-time">--</span>
-                                </div>
-                            </div>
+                                View Code
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -519,8 +449,68 @@
         </div>
     </main>
 
+    <!-- Generate Tests Modal -->
+    <div class="modal-overlay" id="generate-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Generate Tests</h2>
+                <button class="modal-close" onclick="closeGenerateModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="code-description">Code/API Description</label>
+                    <textarea id="code-description" rows="6" placeholder="Describe the API or code you want to test...
+
+Example:
+POST /login API endpoint:
+- Accepts JSON body with 'username' and 'password' fields
+- Returns 200 with JWT token if credentials are valid
+- Returns 401 if password is incorrect
+- Returns 400 if username or password is missing"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="risk-score">Risk Score</label>
+                        <input type="range" id="risk-score" min="0" max="100" value="50">
+                        <span class="range-value" id="risk-score-value">50%</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="files-changed">Files Changed</label>
+                        <input type="number" id="files-changed" value="1" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="critical-module">
+                        <span>Critical Module</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeGenerateModal()">Cancel</button>
+                <button class="btn-primary" id="btn-generate-submit" onclick="generateTests()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                    Generate
+                </button>
+            </div>
+            <div class="modal-loading" id="generate-loading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Generating tests with AI...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Title Bar Styles -->
     <style>
-        /* Title Bar Styles */
         .titlebar {
             display: flex;
             align-items: center;
@@ -535,7 +525,6 @@
             right: 0;
             z-index: 9999;
         }
-
         .titlebar-left {
             display: flex;
             align-items: center;
@@ -543,27 +532,23 @@
             -webkit-app-region: no-drag;
             padding-left: 8px;
         }
-
         .titlebar-center {
             flex: 1;
             display: flex;
             justify-content: center;
             align-items: center;
         }
-
         .titlebar-title {
             font-size: 13px;
             font-weight: 600;
             color: #374151;
             letter-spacing: 0.5px;
         }
-
         .titlebar-right {
             display: flex;
             height: 100%;
             -webkit-app-region: no-drag;
         }
-
         .menu-dropdown { position: relative; height: 100%; }
         .menu-btn {
             height: 100%;
@@ -648,7 +633,7 @@
         });
     </script>
 
-    <script src="/static/impact_analysis.js"></script>
+    <script src="/static/test_runs.js"></script>
 </body>
 
 </html>
