@@ -251,6 +251,108 @@ class GitHubAPI:
                 "updated_at": repo_data["updated_at"],
             }
     
+    # ==================== COMMIT COMPARISON (for hosted environments) ====================
+    
+    async def compare_commits(self, owner: str, repo: str, base: str, head: str) -> Dict[str, Any]:
+        """
+        Compare two commits using GitHub API.
+        This works without local git clone - ideal for hosted environments.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            base: Base commit SHA
+            head: Head commit SHA
+        
+        Returns:
+            Comparison data including files changed and diff
+        """
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/compare/{base}...{head}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                raise Exception(f"Commits not found: {base}...{head}")
+            
+            if response.status_code != 200:
+                raise Exception(f"Failed to compare commits: {response.status_code}")
+            
+            data = response.json()
+            
+            return {
+                "status": data.get("status"),  # ahead, behind, identical, diverged
+                "ahead_by": data.get("ahead_by", 0),
+                "behind_by": data.get("behind_by", 0),
+                "total_commits": data.get("total_commits", 0),
+                "files": [
+                    {
+                        "path": f["filename"],
+                        "status": f["status"],  # added, removed, modified, renamed
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "changes": f.get("changes", 0),
+                        "patch": f.get("patch", ""),  # The actual diff
+                        "previous_filename": f.get("previous_filename"),
+                    }
+                    for f in data.get("files", [])
+                ],
+                "commits": [
+                    {
+                        "sha": c["sha"],
+                        "message": c["commit"]["message"],
+                        "author": c["commit"]["author"]["name"],
+                        "date": c["commit"]["author"]["date"],
+                    }
+                    for c in data.get("commits", [])
+                ]
+            }
+    
+    async def get_commit_diff(self, owner: str, repo: str, commit_sha: str) -> Dict[str, Any]:
+        """
+        Get the diff for a single commit.
+        
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            commit_sha: Commit SHA
+        
+        Returns:
+            Commit data with file changes
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/commits/{commit_sha}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 404:
+                raise Exception(f"Commit not found: {commit_sha}")
+            
+            if response.status_code != 200:
+                raise Exception(f"Failed to get commit: {response.status_code}")
+            
+            data = response.json()
+            
+            return {
+                "sha": data["sha"],
+                "message": data["commit"]["message"],
+                "author": data["commit"]["author"]["name"],
+                "date": data["commit"]["author"]["date"],
+                "stats": data.get("stats", {}),
+                "files": [
+                    {
+                        "path": f["filename"],
+                        "status": f["status"],
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "patch": f.get("patch", ""),
+                    }
+                    for f in data.get("files", [])
+                ]
+            }
+    
     # ==================== WEBHOOK MANAGEMENT ====================
     
     async def list_webhooks(self, owner: str, repo: str) -> List[Dict[str, Any]]:

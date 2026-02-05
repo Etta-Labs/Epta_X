@@ -3,6 +3,42 @@ let appConfig = null;
 let isLoggedIn = false;
 let lastUserData = null;
 
+// API Base URL - determined from config or defaults
+let API_BASE_URL = '';
+
+/**
+ * Get the API base URL for fetch calls.
+ * In web browser: uses relative URLs (empty string)
+ * In Electron with remote backend: uses the configured production URL
+ */
+function getApiBaseUrl() {
+    // If already determined, return cached value
+    if (API_BASE_URL) return API_BASE_URL;
+    
+    // In Electron, check if we should use remote backend
+    if (window.electronAPI && window.electronAPI.isElectron) {
+        // Check if config has a production URL set
+        if (appConfig && appConfig.api && appConfig.api.productionUrl) {
+            API_BASE_URL = appConfig.api.productionUrl;
+        }
+    }
+    
+    // For web, leave empty (relative URLs)
+    return API_BASE_URL;
+}
+
+/**
+ * Wrapper for fetch that prepends the API base URL
+ */
+async function apiFetch(url, options = {}) {
+    const baseUrl = getApiBaseUrl();
+    const fullUrl = baseUrl + url;
+    
+    // Ensure credentials are included
+    options.credentials = options.credentials || 'include';
+    
+    return fetch(fullUrl, options);
+}
 
 
 // Login Modal Functions

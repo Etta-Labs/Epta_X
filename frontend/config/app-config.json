@@ -21,5 +21,9 @@
         "name": "ETTA-X",
         "version": "1.0.0",
         "loadingDuration": 3000
+    },
+    "api": {
+        "backendUrl": "",
+        "productionUrl": "https://epta-x.onrender.com"
     }
 }

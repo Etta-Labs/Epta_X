@@ -79,6 +79,27 @@ CSRF_STATE_EXPIRY = 600  # 10 minutes
 
 app = FastAPI()
 
+# CORS Configuration - Allow Electron app and web origins
+ALLOWED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+    "https://epta-x.onrender.com",
+    "https://ettax.onrender.com",
+    "https://ettax.gowshik.online",
+    "app://.",  # Electron app origin
+    "file://",  # Electron file:// origin
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS if IS_PRODUCTION else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-OAuth-Scopes", "X-Token-Expired", "X-Token-Invalid"],
+)
+
 # Include test pipeline router
 app.include_router(test_pipeline_router)
 
@@ -1739,12 +1760,57 @@ def run_impact_analysis_from_features(features: dict) -> dict:
 
 # ==================== BACKGROUND PROCESSING ====================
 
+async def analyze_with_github_api(token: str, owner: str, repo: str, before_sha: str, after_sha: str) -> dict:
+    """
+    Fallback: Analyze commits using GitHub API when local git isn't available.
+    This is used on hosted environments like Render where local clones may not persist.
+    """
+    try:
+        github_api = GitHubAPI(token)
+        comparison = await github_api.compare_commits(owner, repo, before_sha, after_sha)
+        
+        # Convert GitHub API format to our analysis format
+        changed_files = []
+        for f in comparison.get('files', []):
+            changed_files.append({
+                'path': f['path'],
+                'status': f['status'],
+                'additions': f.get('additions', 0),
+                'deletions': f.get('deletions', 0),
+                'diff': f.get('patch', ''),
+                'line_ranges': [],  # Not available from API
+                'changed_nodes': [],  # Can't do AST without file content
+                'change_types': []
+            })
+        
+        return {
+            'old_commit': before_sha,
+            'new_commit': after_sha,
+            'changed_files': changed_files,
+            'changed_functions': [],
+            'change_types': [],
+            'affected_components': [],
+            'summary': {
+                'total_files': len(changed_files),
+                'added_files': sum(1 for f in changed_files if f['status'] == 'added'),
+                'modified_files': sum(1 for f in changed_files if f['status'] == 'modified'),
+                'deleted_files': sum(1 for f in changed_files if f['status'] == 'removed'),
+                'total_lines_added': sum(f.get('additions', 0) for f in changed_files),
+                'total_lines_deleted': sum(f.get('deletions', 0) for f in changed_files),
+            },
+            'source': 'github_api'
+        }
+    except Exception as e:
+        print(f"[Pipeline] GitHub API analysis failed: {e}")
+        return None
+
+
 async def process_webhook_event_background(event_id: int, event_data: dict):
     """
     Background task to process a webhook event.
     
     PIPELINE FLOW:
-    1. Clone/pull repository
+    1. Clone/pull repository (with GitHub API fallback)
     2. Run git diff analysis (Code Change Detection)
     3. Extract features from diff
     4. Run ML Impact Analysis
@@ -1791,19 +1857,40 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
             print(f"[Pipeline] No access token found for repo {repo_full_name}")
             return
         
-        # STEP 1: Clone or pull the repository
-        print(f"[Pipeline] Step 1: Cloning/pulling repository...")
-        local_path = await clone_or_pull_repo(owner, repo_name, token, branch)
+        # STEP 1: Try to clone/pull the repository (may fail on hosted environments)
+        print(f"[Pipeline] Step 1: Attempting to clone/pull repository...")
+        local_path = None
+        use_github_api = os.getenv("USE_GITHUB_API_FOR_DIFFS", "false").lower() == "true"
+        
+        if use_github_api:
+            print(f"[Pipeline] Using GitHub API for diffs (USE_GITHUB_API_FOR_DIFFS=true)")
+        else:
+            try:
+                local_path = await clone_or_pull_repo(owner, repo_name, token, branch)
+                print(f"[Pipeline] Repository cloned/pulled to: {local_path}")
+            except Exception as clone_err:
+                print(f"[Pipeline] Local git clone failed: {clone_err}")
+                print(f"[Pipeline] Falling back to GitHub API for diff analysis...")
+                use_github_api = True
         
         # STEP 2: Run git diff + AST analysis (Code Change Detection)
-        print(f"[Pipeline] Step 2: Running git diff and AST analysis...")
+        print(f"[Pipeline] Step 2: Running diff analysis...")
         analysis_result = None
         impact_result = None
         
         if before_sha and after_sha and before_sha != '0' * 40:
             try:
-                analysis_result = analyze_commits(local_path, before_sha, after_sha)
-                print(f"[Pipeline] Git diff analysis complete for event {event_id}")
+                # Try local git analysis first, fall back to GitHub API
+                if local_path and not use_github_api:
+                    analysis_result = analyze_commits(local_path, before_sha, after_sha)
+                    print(f"[Pipeline] Local git diff analysis complete for event {event_id}")
+                else:
+                    # Use GitHub API for diff
+                    analysis_result = await analyze_with_github_api(token, owner, repo_name, before_sha, after_sha)
+                    if analysis_result:
+                        print(f"[Pipeline] GitHub API diff analysis complete for event {event_id}")
+                    else:
+                        raise Exception("GitHub API analysis returned no results")
                 
                 # STEP 3: Extract features from diff
                 print(f"[Pipeline] Step 3: Extracting ML features from analysis...")

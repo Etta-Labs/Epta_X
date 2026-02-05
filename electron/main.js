@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electro
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 
 // Set app name for protocol handler (makes browser say "Open ETTA-X" not "Open Electron")
 app.setName('ETTA-X');
@@ -50,9 +51,20 @@ if (process.defaultApp) {
 
 // Configuration
 const PORT = 8000;
-const APP_URL = `http://127.0.0.1:${PORT}`;
 const isDev = process.argv.includes('--dev');
 const forceSetup = process.argv.includes('--setup');
+const useLocalBackend = process.argv.includes('--local');
+const forceRemoteBackend = process.argv.includes('--remote');
+
+// Production backend URL - baked at build time for EXE distribution
+// Users don't need .env file - this URL is compiled into the app
+const PRODUCTION_BACKEND_URL = 'https://ettax.gowshik.online';
+
+// Use remote backend if: --remote flag, OR (not dev mode AND not --local flag)
+const useRemoteBackend = forceRemoteBackend || (!isDev && !useLocalBackend);
+
+// APP_URL: production uses remote backend, dev uses local
+const APP_URL = useRemoteBackend ? PRODUCTION_BACKEND_URL : `http://127.0.0.1:${PORT}`;
 
 let mainWindow;
 let backendProcess;
@@ -378,11 +390,14 @@ function startBackend() {
 function waitForBackend(maxRetries = 30, delay = 500) {
     return new Promise((resolve, reject) => {
         let retries = 0;
+        
+        // Use https for HTTPS URLs, http for HTTP
+        const httpModule = APP_URL.startsWith('https') ? https : http;
 
         const checkServer = () => {
             log(`Checking backend... attempt ${retries + 1}/${maxRetries}`);
 
-            const req = http.get(APP_URL + '/health', (res) => {
+            const req = httpModule.get(APP_URL + '/health', (res) => {
                 if (res.statusCode === 200) {
                     log('Backend server is ready!');
                     resolve();
@@ -392,7 +407,7 @@ function waitForBackend(maxRetries = 30, delay = 500) {
             });
 
             req.on('error', () => retry());
-            req.setTimeout(2000, () => {
+            req.setTimeout(5000, () => {
                 req.destroy();
                 retry();
             });
@@ -429,6 +444,7 @@ app.whenReady().then(async () => {
     log('ETTA-X is starting...');
     log(`Mode: ${isDev ? 'Development' : 'Production'}`);
     log(`Force Setup: ${forceSetup}`);
+    log(`Backend Mode: ${useRemoteBackend ? 'Remote (ettax.gowshik.online)' : 'Local'}`);
     log(`Backend URL: ${APP_URL}`);
 
     // Clear session if force setup - do this BEFORE backend starts
@@ -443,15 +459,19 @@ app.whenReady().then(async () => {
         log('Cleared all session data for fresh setup');
     }
 
-    // Always start the backend (both dev and production)
-    try {
-        await startBackend();
-    } catch (error) {
-        log(`Failed to start backend: ${error}`, 'ERROR');
+    // Only start local backend if using local mode
+    if (!useRemoteBackend) {
+        try {
+            await startBackend();
+        } catch (error) {
+            log(`Failed to start backend: ${error}`, 'ERROR');
+        }
+    } else {
+        log('Using remote backend at ' + PRODUCTION_BACKEND_URL + ' - skipping local backend startup');
     }
 
     try {
-        await waitForBackend(30, 1000);
+        await waitForBackend(useRemoteBackend ? 10 : 30, 1000);
 
         // If force setup, also call logout API to clear any server-side session
         if (forceSetup) {
@@ -494,12 +514,12 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
-        stopBackend();
+        if (!useRemoteBackend) stopBackend();
         app.quit();
     }
 });
 
-app.on('before-quit', () => stopBackend());
-process.on('exit', () => stopBackend());
-process.on('SIGINT', () => { stopBackend(); process.exit(); });
-process.on('SIGTERM', () => { stopBackend(); process.exit(); });
+app.on('before-quit', () => { if (!useRemoteBackend) stopBackend(); });
+process.on('exit', () => { if (!useRemoteBackend) stopBackend(); });
+process.on('SIGINT', () => { if (!useRemoteBackend) stopBackend(); process.exit(); });
+process.on('SIGTERM', () => { if (!useRemoteBackend) stopBackend(); process.exit(); });

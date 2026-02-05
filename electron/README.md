@@ -6,7 +6,8 @@ Electron-based desktop application for ETTA-X - AI Test Automation Platform.
 
 - **Custom Title Bar**: Frameless window with dynamic theming
 - **Theme Synchronization**: Menu bar and app theme stay in sync
-- **Integrated Backend**: Automatically starts the FastAPI backend server
+- **Integrated Backend**: Automatically starts the FastAPI backend server (optional)
+- **Remote Backend Mode**: Connect to hosted backend without local Python
 - **Cross-Platform**: Builds available for Windows, macOS, and Linux
 
 ## Development Setup
@@ -14,7 +15,7 @@ Electron-based desktop application for ETTA-X - AI Test Automation Platform.
 ### Prerequisites
 
 - Node.js 18+ installed
-- Python 3.9+ installed
+- Python 3.9+ installed (for local backend mode)
 - Project dependencies installed
 
 ### Install Dependencies
@@ -48,6 +49,23 @@ This will start the backend server automatically:
 cd electron
 npm start
 ```
+
+### Run with Remote Backend (No Local Python Required)
+
+Connect to a hosted backend (e.g., on Render):
+
+```bash
+# Use the default remote backend URL
+npm run start:remote
+
+# Or specify a custom backend URL
+BACKEND_URL=https://your-backend.com npm run start:remote
+```
+
+Command line flags:
+- `--remote` - Skip local backend startup, connect to remote backend
+- `--setup` - Force fresh setup on startup
+- `--dev` - Enable development mode with hot reload
 
 ## Building for Production
 
