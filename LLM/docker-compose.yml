@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  llm-gateway:
+    build: .
+    container_name: llm-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - LLM_DEBUG=false
+      - LLM_HOST=0.0.0.0
+      - LLM_PORT=8080
+    volumes:
+      # Persist the worker URL registry across restarts
+      - worker-data:/tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - llm-network
+
+  # Cloudflare tunnel (optional - can also run directly on host)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - llm-network
+    depends_on:
+      - llm-gateway
+
+volumes:
+  worker-data:
+
+networks:
+  llm-network:
+    driver: bridge
