@@ -18,28 +18,28 @@
 
 ---
 
-## 📋 Overview
+## Overview
 
 **ETTA-X** (Enterprise Test & Transformation Accelerator - eXtended) is an AI-powered platform that automatically generates, prioritizes, and manages test cases based on code changes. It uses machine learning for impact analysis and local LLM models for intelligent test generation.
 
-> ⚠️ **Infrastructure Note**: Due to infrastructure limitations, the demo executable uses **Google Gemini API** for test generation. The actual local prototype uses **CodeLlama 7B** running via Ollama for completely offline, privacy-preserving test generation.
+> **Infrastructure Note**: Due to infrastructure limitations, the demo executable uses **Google Gemini API** for test generation. The actual local prototype uses **CodeLlama 7B** running via Ollama for completely offline, privacy-preserving test generation.
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---------|-------------|
-| **🔍 Impact Analysis** | Automatically analyzes code changes and calculates risk scores |
-| **🤖 AI Test Generation** | Generates test cases using CodeLlama (local) or Gemini (demo) |
-| **📊 Risk-Based Prioritization** | ML model prioritizes tests based on change risk and code criticality |
-| **🔗 GitHub Integration** | Webhook-based pipeline triggers on every push |
-| **📈 Dashboard Analytics** | Real-time metrics on repositories, analyses, and test coverage |
-| **🌙 Dark/Light Theme** | Full theme support for comfortable viewing |
+| ** Impact Analysis** | Automatically analyzes code changes and calculates risk scores |
+| ** AI Test Generation** | Generates test cases using CodeLlama (local) or Gemini (demo) |
+| ** Risk-Based Prioritization** | ML model prioritizes tests based on change risk and code criticality |
+| ** GitHub Integration** | Webhook-based pipeline triggers on every push |
+| ** Dashboard Analytics** | Real-time metrics on repositories, analyses, and test coverage |
+| ** Dark/Light Theme** | Full theme support for comfortable viewing |
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 
@@ -135,7 +135,7 @@ npm run setup
 
 ---
 
-## 📖 Using the Features
+##  Using the Features
 
 ### 1. Dashboard
 
@@ -185,16 +185,16 @@ git push origin main
 ```
 
 The pipeline automatically:
-1. ✅ Receives webhook from GitHub
-2. ✅ Analyzes code diff
-3. ✅ Calculates impact/risk score
-4. ✅ Generates tests via AI (if risk > threshold)
-5. ✅ Prioritizes tests using ML model
-6. ✅ Updates the UI in real-time
+1.  Receives webhook from GitHub
+2.  Analyzes code diff
+3.  Calculates impact/risk score
+4.  Generates tests via AI (if risk > threshold)
+5.  Prioritizes tests using ML model
+6.  Updates the UI in real-time
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -227,7 +227,7 @@ The pipeline automatically:
 
 ---
 
-## 🔧 API Reference
+##  API Reference
 
 ### Webhook Endpoint
 ```
@@ -255,7 +255,7 @@ Returns LLM status and pipeline health.
 
 ---
 
-## 📦 Project Structure
+##  Project Structure
 
 ```
 ETTA-X/
@@ -290,7 +290,7 @@ ETTA-X/
 
 ---
 
-## 🙏 Credits & Acknowledgments
+##  Credits & Acknowledgments
 
 ### External APIs
 
@@ -327,7 +327,7 @@ ETTA-X/
 
 ---
 
-## ⚙️ Configuration
+##  Configuration
 
 ### Environment Variables (Optional)
 
@@ -348,7 +348,7 @@ Edit `LLM/llm_model.py` to switch between:
 
 ---
 
-## 🔒 Privacy & Security
+##  Privacy & Security
 
 - **Local Processing**: CodeLlama runs entirely on your machine
 - **No Code Upload**: Your code never leaves your infrastructure
@@ -357,7 +357,7 @@ Edit `LLM/llm_model.py` to switch between:
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Ollama not responding
 ```bash
@@ -380,18 +380,14 @@ ollama serve
 
 ---
 
-## 📄 License
 
-This project is developed for the ETTA-X Hackathon 2026.
-
----
-
-## 👥 Team
+##  Team
 
 **EttaX-Developers**
 
 ---
 
 <p align="center">
-  Made with ❤️ for intelligent test automation
+  Made with for intelligent test automation
 </p>
+
