@@ -1,0 +1,14 @@
+# ETTA-X LLM Module Requirements
+# ================================
+
+# LLM inference with GGUF models (auto-downloads from HuggingFace)
+ctransformers>=0.2.27
+
+# For GPU support (CUDA), install with:
+# pip install ctransformers[cuda]
+
+# Async support
+aiofiles>=23.0.0
+
+# JSON parsing for LLM outputs
+json5>=0.9.0

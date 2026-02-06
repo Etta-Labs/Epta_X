@@ -1,0 +1,4 @@
+# Test delete all
+def delete_all(): pass
+
+Test commit for pipeline - 2026-02-05 15:49:45

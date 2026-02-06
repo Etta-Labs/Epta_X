@@ -1,0 +1,28 @@
+# Render Blueprint Configuration for ETTA-X Backend
+# Deploy from the backend-hosting folder
+
+services:
+  - type: web
+    name: ettax-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt && cp -r ../frontend ./frontend
+    startCommand: uvicorn app.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
+        sync: false
+      - key: WEBHOOK_BASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: USE_GITHUB_API_FOR_DIFFS
+        value: "true"
+      - key: PYTHON_VERSION
+        value: "3.11"

@@ -87,6 +87,9 @@ _llm_status = {
     "error": None
 }
 
+# Gemini fallback status
+_gemini_available = False
+
 
 def get_llm_module():
     """Lazy import of LLM module to avoid startup delays."""
@@ -111,27 +114,72 @@ def get_llm_module():
         return None
 
 
+def get_gemini_module():
+    """Get Gemini API module as fallback."""
+    global _gemini_available
+    
+    try:
+        from backend.model.LLM.gemini_model import (
+            get_gemini_instance,
+            generate_tests_with_gemini
+        )
+        gemini = get_gemini_instance()
+        _gemini_available = gemini.is_available()
+        return {
+            "get_instance": get_gemini_instance,
+            "generate_tests": generate_tests_with_gemini,
+            "is_available": _gemini_available
+        }
+    except ImportError as e:
+        logger.warning(f"Gemini module not available: {e}")
+        return None
+
+
+def check_local_llm_available():
+    """Check if local Ollama LLM is available."""
+    try:
+        import requests
+        r = requests.get("http://localhost:11434/api/tags", timeout=2)
+        return r.status_code == 200
+    except:
+        return False
+
+
 # ==================== API ENDPOINTS ====================
 
 @router.get("/status")
 async def get_test_pipeline_status():
     """
     Get the status of the test generation pipeline.
+    Checks both local LLM (Ollama) and Gemini API availability.
     """
     global _llm_status
     
+    local_llm_available = check_local_llm_available()
+    gemini_module = get_gemini_module()
+    gemini_available = gemini_module and gemini_module.get("is_available", False)
+    
     llm_module = get_llm_module()
     
-    if llm_module:
+    if llm_module and local_llm_available:
         try:
             llm = llm_module["get_llm_instance"]()
             _llm_status = llm.get_status()
         except Exception as e:
             _llm_status["error"] = str(e)
+    elif gemini_available:
+        gemini = gemini_module["get_instance"]()
+        _llm_status = gemini.get_status()
+    
+    # Pipeline is ready if either local LLM or Gemini is available
+    pipeline_ready = local_llm_available or gemini_available
     
     return {
-        "pipeline_status": "ready" if llm_module else "not_ready",
+        "pipeline_status": "ready" if pipeline_ready else "not_ready",
         "llm_status": _llm_status,
+        "local_llm_available": local_llm_available,
+        "gemini_available": gemini_available,
+        "using_fallback": not local_llm_available and gemini_available,
         "active_runs": len([r for r in test_runs.values() if r.get("status") == "running"]),
         "total_runs": len(test_runs),
         "cached_tests": len(generated_tests_cache)
@@ -141,26 +189,38 @@ async def get_test_pipeline_status():
 @router.post("/generate")
 async def generate_tests_endpoint(request: TestGenerationRequest):
     """
-    Generate tests from code description using local LLM.
-    
-    Returns prioritized tests ready for execution.
+    Generate tests from code description.
+    Uses local LLM (Ollama) if available, falls back to Gemini API.
     """
-    llm_module = get_llm_module()
+    # Check which LLM backend to use
+    local_llm_available = check_local_llm_available()
+    llm_module = get_llm_module() if local_llm_available else None
+    gemini_module = get_gemini_module()
     
-    if not llm_module:
+    use_gemini = not local_llm_available and gemini_module and gemini_module.get("is_available", False)
+    
+    if not llm_module and not use_gemini:
         raise HTTPException(
             status_code=503,
-            detail="LLM module not available. Please install llama-cpp-python."
+            detail="No LLM available. Local Ollama not running and GEMINI_API_KEY not configured."
         )
     
     try:
-        # Step 1: Generate tests using LLM
+        # Step 1: Generate tests using available LLM
         logger.info(f"Generating tests for: {request.code_description[:100]}...")
         
-        generation_result = llm_module["generate_tests"](
-            code_description=request.code_description,
-            language=request.language
-        )
+        if use_gemini:
+            logger.info("Using Gemini API (local LLM not available)")
+            generation_result = gemini_module["generate_tests"](
+                code_description=request.code_description,
+                language=request.language
+            )
+        else:
+            logger.info("Using local Ollama LLM")
+            generation_result = llm_module["generate_tests"](
+                code_description=request.code_description,
+                language=request.language
+            )
         
         if not generation_result.get("success"):
             raise HTTPException(
@@ -176,18 +236,38 @@ async def generate_tests_endpoint(request: TestGenerationRequest):
                 "message": "No tests generated",
                 "tests": [],
                 "prioritized_tests": [],
-                "generation_time_ms": generation_result.get("generation_time_ms", 0)
+                "generation_time_ms": generation_result.get("generation_time_ms", 0),
+                "model_used": generation_result.get("model_used", "unknown")
             }
         
         # Step 2: Prioritize tests
         logger.info(f"Prioritizing {len(tests)} tests...")
         
-        prioritization_result = llm_module["prioritize_tests"](
-            tests=tests,
-            change_risk_score=request.change_risk_score,
-            files_changed=request.files_changed,
-            critical_module=request.critical_module
-        )
+        # Use local prioritizer if available, otherwise simple priority assignment
+        if llm_module:
+            prioritization_result = llm_module["prioritize_tests"](
+                tests=tests,
+                change_risk_score=request.change_risk_score,
+                files_changed=request.files_changed,
+                critical_module=request.critical_module
+            )
+        else:
+            # Simple fallback prioritization for Gemini
+            prioritized_tests = sorted(tests, key=lambda t: t.get("priority_score", 0.5), reverse=True)
+            prioritization_result = {
+                "all_tests": prioritized_tests,
+                "selected_tests": prioritized_tests,
+                "total_count": len(tests),
+                "selected_count": len(tests),
+                "priority_level": "all",
+                "risk_context": {
+                    "change_risk": request.change_risk_score,
+                    "files_changed": request.files_changed,
+                    "critical_module": request.critical_module
+                }
+            }
+        
+        model_used = generation_result.get("model_used", "unknown")
         
         # Cache the results
         cache_key = f"{request.repository or 'unknown'}_{request.commit or datetime.now().isoformat()}"
@@ -195,7 +275,8 @@ async def generate_tests_endpoint(request: TestGenerationRequest):
             "tests": tests,
             "prioritized": prioritization_result,
             "request": request.dict(),
-            "generated_at": datetime.now().isoformat()
+            "generated_at": datetime.now().isoformat(),
+            "model_used": model_used
         }
         
         return {
@@ -204,7 +285,7 @@ async def generate_tests_endpoint(request: TestGenerationRequest):
             "generation": {
                 "test_count": len(tests),
                 "generation_time_ms": generation_result.get("generation_time_ms", 0),
-                "model_used": generation_result.get("model_used", "CodeLlama-7B")
+                "model_used": model_used
             },
             "prioritization": {
                 "total_count": prioritization_result.get("total_count", 0),
