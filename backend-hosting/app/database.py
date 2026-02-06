@@ -671,16 +671,23 @@ def mark_webhook_event_processed(event_id: int, result: Optional[str] = None):
         conn.commit()
 
 
-def get_recent_webhook_events(repository_full_name: str, limit: int = 10) -> list:
-    """Get recent webhook events for a repository."""
+def get_recent_webhook_events(repository_full_name: str = None, limit: int = 10) -> list:
+    """Get recent webhook events, optionally filtered by repository."""
     with get_db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
-            SELECT * FROM webhook_events 
-            WHERE repository_full_name = %s 
-            ORDER BY created_at DESC 
-            LIMIT %s
-        """, (repository_full_name, limit))
+        if repository_full_name is None:
+            cursor.execute("""
+                SELECT * FROM webhook_events 
+                ORDER BY created_at DESC 
+                LIMIT %s
+            """, (limit,))
+        else:
+            cursor.execute("""
+                SELECT * FROM webhook_events 
+                WHERE repository_full_name = %s 
+                ORDER BY created_at DESC 
+                LIMIT %s
+            """, (repository_full_name, limit))
         return [dict(row) for row in cursor.fetchall()]
 
 

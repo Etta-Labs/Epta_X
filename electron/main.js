@@ -3,6 +3,28 @@ const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+
+// Load environment variables from .env file
+function loadEnvFile() {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf8');
+        envContent.split('\n').forEach(line => {
+            const trimmedLine = line.trim();
+            if (trimmedLine && !trimmedLine.startsWith('#')) {
+                const [key, ...valueParts] = trimmedLine.split('=');
+                if (key && valueParts.length > 0) {
+                    const value = valueParts.join('=').trim();
+                    process.env[key.trim()] = value;
+                }
+            }
+        });
+    }
+}
+
+// Load .env on startup
+loadEnvFile();
 
 // Set app name for protocol handler (makes browser say "Open ETTA-X" not "Open Electron")
 app.setName('ETTA-X');
@@ -56,9 +78,8 @@ const forceSetup = process.argv.includes('--setup');
 const useLocalBackend = process.argv.includes('--local');
 const forceRemoteBackend = process.argv.includes('--remote');
 
-// Production backend URL - baked at build time for EXE distribution
-// Users don't need .env file - this URL is compiled into the app
-const PRODUCTION_BACKEND_URL = 'https://ettax.gowshik.online';
+// Production backend URL - loaded from .env file or fallback to default
+const PRODUCTION_BACKEND_URL = process.env.BACKEND_URL || 'https://etta.gowshik.in';
 
 // Use remote backend if: --remote flag, OR (not dev mode AND not --local flag)
 const useRemoteBackend = forceRemoteBackend || (!isDev && !useLocalBackend);
@@ -306,6 +327,11 @@ ipcMain.handle('set-theme', (event, theme) => {
     if (mainWindow) {
         mainWindow.setBackgroundColor(currentTheme === 'dark' ? '#1e1e1e' : '#ffffff');
     }
+});
+
+// Configuration handlers
+ipcMain.handle('get-backend-url', () => {
+    return APP_URL;
 });
 
 ipcMain.on('sync-theme', (event, theme) => {

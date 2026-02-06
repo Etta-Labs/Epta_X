@@ -41,6 +41,7 @@ from app.database import (
     get_unprocessed_webhook_events, mark_webhook_event_processed,
     get_recent_webhook_events, get_db_connection
 )
+from psycopg2.extras import RealDictCursor
 
 # Import GitHub API module
 from api.git_repo import (
@@ -2237,7 +2238,7 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
         # Get user's token from user_sessions (joined via repositories)
         token = None
         with get_db_connection() as conn:
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("""
                 SELECT s.github_access_token FROM user_sessions s 
                 JOIN repositories r ON r.user_id = s.user_id 
@@ -2710,7 +2711,7 @@ async def trigger_event_processing(event_id: int, request: Request):
         # Get the event from database
         event = None
         with get_db_connection() as conn:
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
@@ -2827,7 +2828,7 @@ async def get_event_analysis(event_id: int, request: Request):
         # Get the event from database
         event = None
         with get_db_connection() as conn:
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
@@ -3725,7 +3726,7 @@ async def run_impact_analysis_from_event(event_id: int, request: Request):
         # Get the event from database
         event = None
         with get_db_connection() as conn:
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
@@ -3908,10 +3909,10 @@ async def get_pipeline_stats(request: Request):
         repos_count = 0
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) as count FROM repositories")
+            cursor.execute("SELECT COUNT(*) FROM repositories")
             row = cursor.fetchone()
             if row:
-                repos_count = row['count']
+                repos_count = row[0]
         
         return {
             "connected_repos": repos_count,
@@ -3923,6 +3924,7 @@ async def get_pipeline_stats(request: Request):
         }
         
     except Exception as e:
+        print(f"[ERROR] Pipeline stats error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3941,7 +3943,7 @@ async def get_pipeline_event_detail(event_id: int, request: Request):
     try:
         event = None
         with get_db_connection() as conn:
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
