@@ -1114,10 +1114,11 @@ async def setup_repository_webhook(owner: str, repo: str, request: Request):
 
 
 @app.post("/api/github/repos/{owner}/{repo}/connect")
-async def connect_repository(owner: str, repo: str, request: Request):
+async def connect_repository(owner: str, repo: str, request: Request, background_tasks: BackgroundTasks):
     """
     Connect a repository - creates the repo record in DB and attempts to set up webhook.
     This is the main endpoint called when user clicks "Clone/Connect" button.
+    Auto-fetches recent commits and analyzes them in the background.
     
     Request body (optional):
     {
@@ -1242,6 +1243,11 @@ async def connect_repository(owner: str, repo: str, request: Request):
         except Exception as e:
             webhook_error = f"Webhook setup error: {str(e)}"
         
+        # Auto-fetch recent commits in background
+        repo_full_name = db_repo['full_name']
+        background_tasks.add_task(auto_fetch_commits_for_repo, repo_full_name, token, 50)
+        print(f"[Connect] Triggered auto-fetch for {repo_full_name}")
+        
         return {
             "success": True,
             "repository": {
@@ -1251,7 +1257,9 @@ async def connect_repository(owner: str, repo: str, request: Request):
                 "default_branch": db_repo.get('default_branch', 'main'),
             },
             "webhook_setup": webhook_setup,
-            "webhook_error": webhook_error
+            "webhook_error": webhook_error,
+            "auto_fetch": True,
+            "message": "Repository connected. Fetching recent commits..."
         }
         
     except HTTPException:
@@ -1805,6 +1813,143 @@ async def analyze_with_github_api(token: str, owner: str, repo: str, before_sha:
     except Exception as e:
         print(f"[Pipeline] GitHub API analysis failed: {e}")
         return None
+
+
+async def auto_fetch_commits_for_repo(repo_full_name: str, token: str, limit: int = 50):
+    """
+    Auto-fetch recent commits from GitHub and analyze them.
+    This is called when a repo is connected to populate commit history.
+    """
+    try:
+        print(f"[AutoFetch] Fetching commits for {repo_full_name}")
+        synced_count = 0
+        
+        async with httpx.AsyncClient() as client:
+            owner, repo = repo_full_name.split('/')
+            
+            # Fetch recent commits from GitHub (no limit restriction)
+            commits_response = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/commits",
+                params={"per_page": limit},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+            )
+            
+            if commits_response.status_code != 200:
+                print(f"[AutoFetch] Failed to fetch commits: {commits_response.status_code}")
+                return 0
+            
+            commits = commits_response.json()
+            print(f"[AutoFetch] Found {len(commits)} commits")
+            
+            for commit in commits:
+                commit_sha = commit['sha']
+                
+                # Check if we already have this commit
+                existing = get_webhook_event_by_delivery_id(f"sync-{commit_sha}")
+                if existing:
+                    continue
+                
+                # Also check by commit_sha
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT id FROM webhook_events WHERE commit_sha = %s",
+                        (commit_sha,)
+                    )
+                    if cursor.fetchone():
+                        continue
+                
+                # Get the parent SHA for diff
+                parent_sha = commit['parents'][0]['sha'] if commit.get('parents') else None
+                
+                # Create a synthetic webhook event
+                event_data = {
+                    "github_delivery_id": f"sync-{commit_sha}",
+                    "event_type": "push",
+                    "repository_full_name": repo_full_name,
+                    "branch": "main",
+                    "commit_sha": commit_sha,
+                    "before_sha": parent_sha,
+                    "payload": json.dumps({
+                        "ref": "refs/heads/main",
+                        "after": commit_sha,
+                        "before": parent_sha,
+                        "repository": {"full_name": repo_full_name},
+                        "commits": [{
+                            "id": commit_sha,
+                            "message": commit['commit']['message'],
+                            "author": commit['commit']['author'],
+                            "added": [],
+                            "modified": [],
+                            "removed": []
+                        }],
+                        "head_commit": {
+                            "id": commit_sha,
+                            "message": commit['commit']['message']
+                        }
+                    })
+                }
+                
+                # Create the event in database
+                stored_event = create_webhook_event(
+                    webhook_id=1,
+                    delivery_id=event_data["github_delivery_id"],
+                    event_type=event_data["event_type"],
+                    repository_full_name=event_data["repository_full_name"],
+                    branch=event_data["branch"],
+                    commit_sha=event_data["commit_sha"],
+                    before_sha=event_data["before_sha"],
+                    payload=event_data["payload"]
+                )
+                
+                if stored_event:
+                    event_id = stored_event["id"]
+                    synced_count += 1
+                    
+                    # Process the event immediately - get diff and analyze
+                    try:
+                        # Get diff from GitHub
+                        diff_response = await client.get(
+                            f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_sha}",
+                            headers={
+                                "Authorization": f"Bearer {token}",
+                                "Accept": "application/vnd.github.v3.diff",
+                            },
+                        )
+                        
+                        if diff_response.status_code == 200:
+                            diff_content = diff_response.text
+                            
+                            # Run impact analysis
+                            features = extract_features_from_diff(diff_content)
+                            analysis_result = run_impact_analysis_from_features(features)
+                            
+                            # Store the result
+                            processing_result = {
+                                "pipeline_status": "completed",
+                                "diff_analysis": features,
+                                "impact_analysis": analysis_result
+                            }
+                            
+                            mark_webhook_event_processed(
+                                event_id,
+                                json.dumps(processing_result)
+                            )
+                            print(f"[AutoFetch] Analyzed commit {commit_sha[:7]}")
+                    except Exception as proc_error:
+                        print(f"[AutoFetch] Error processing commit {commit_sha}: {proc_error}")
+        
+        print(f"[AutoFetch] Synced {synced_count} commits for {repo_full_name}")
+        return synced_count
+        
+    except Exception as e:
+        print(f"[AutoFetch] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
 
 
 async def process_webhook_event_background(event_id: int, event_data: dict):
@@ -2796,9 +2941,10 @@ async def get_repository_analysis(full_name: str, request: Request, event_id: Op
 
 
 @app.get("/api/repositories/{full_name:path}/events")
-async def get_repository_events(full_name: str, request: Request, limit: int = 20):
+async def get_repository_events(full_name: str, request: Request, limit: int = 50, auto_fetch: bool = True):
     """
     Get webhook events history for a repository.
+    If no events exist and auto_fetch is True, fetches from GitHub.
     """
     token = request.cookies.get("github_token")
     
@@ -2807,6 +2953,15 @@ async def get_repository_events(full_name: str, request: Request, limit: int = 2
     
     try:
         events = get_recent_webhook_events(full_name, limit=limit)
+        
+        # If no events exist, auto-fetch from GitHub
+        if not events and auto_fetch and token:
+            print(f"[Events] No local events for {full_name}, auto-fetching from GitHub...")
+            synced = await auto_fetch_commits_for_repo(full_name, token, limit)
+            if synced > 0:
+                # Reload events after sync
+                events = get_recent_webhook_events(full_name, limit=limit)
+                print(f"[Events] After sync: {len(events)} events")
         
         return {
             "repository": full_name,
@@ -3581,10 +3736,11 @@ async def impact_analysis_page():
 
 
 @app.post("/api/sync/commits")
-async def sync_commits_from_github(request: Request, repository: Optional[str] = None):
+async def sync_commits_from_github(request: Request, repository: Optional[str] = None, limit: int = 50):
     """
     Sync recent commits from GitHub API directly.
     This bypasses webhooks and fetches commits directly from GitHub.
+    No artificial limit - fetches as many commits as specified.
     """
     token = request.cookies.get("github_token")
     
@@ -3613,10 +3769,10 @@ async def sync_commits_from_github(request: Request, repository: Optional[str] =
                 try:
                     owner, repo = repo_full_name.split('/')
                     
-                    # Fetch recent commits from GitHub
+                    # Fetch commits from GitHub (configurable limit)
                     commits_response = await client.get(
                         f"https://api.github.com/repos/{owner}/{repo}/commits",
-                        params={"per_page": 20},
+                        params={"per_page": min(limit, 100)},  # GitHub max is 100 per page
                         headers={
                             "Authorization": f"Bearer {token}",
                             "Accept": "application/vnd.github.v3+json",
