@@ -690,11 +690,11 @@ async def set_auth_token(request: Request, body: TokenRequest):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         # Delete old sessions for this user
-        cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM user_sessions WHERE user_id = %s", (user_id,))
         # Create new session
         cursor.execute("""
             INSERT INTO user_sessions (user_id, session_token, github_access_token, expires_at)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
         """, (user_id, session_token, access_token, expires_at.isoformat()))
         conn.commit()
     
@@ -1848,7 +1848,7 @@ async def process_webhook_event_background(event_id: int, event_data: dict):
             cursor.execute("""
                 SELECT s.github_access_token FROM user_sessions s 
                 JOIN repositories r ON r.user_id = s.user_id 
-                WHERE r.full_name = ? AND s.expires_at > datetime('now')
+                WHERE r.full_name = %s AND s.expires_at > NOW()
                 ORDER BY s.created_at DESC LIMIT 1
             """, (repo_full_name,))
             row = cursor.fetchone()
@@ -2318,7 +2318,7 @@ async def trigger_event_processing(event_id: int, request: Request):
         event = None
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+            cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
                 event = dict(row)
@@ -2435,7 +2435,7 @@ async def get_event_analysis(event_id: int, request: Request):
         event = None
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+            cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
                 event = dict(row)
@@ -3323,7 +3323,7 @@ async def run_impact_analysis_from_event(event_id: int, request: Request):
         event = None
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+            cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
                 event = dict(row)
@@ -3539,7 +3539,7 @@ async def get_pipeline_event_detail(event_id: int, request: Request):
         event = None
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
+            cursor.execute("SELECT * FROM webhook_events WHERE id = %s", (event_id,))
             row = cursor.fetchone()
             if row:
                 event = dict(row)
@@ -3641,7 +3641,7 @@ async def sync_commits_from_github(request: Request, repository: Optional[str] =
                         with get_db_connection() as conn:
                             cursor = conn.cursor()
                             cursor.execute(
-                                "SELECT id FROM webhook_events WHERE commit_sha = ?",
+                                "SELECT id FROM webhook_events WHERE commit_sha = %s",
                                 (commit_sha,)
                             )
                             if cursor.fetchone():
