@@ -1768,10 +1768,173 @@ def run_impact_analysis_from_features(features: dict) -> dict:
 
 # ==================== BACKGROUND PROCESSING ====================
 
+def parse_patch_to_line_ranges(patch: str) -> list:
+    """
+    Parse git patch/diff to extract line ranges.
+    Returns list of dicts with start, end, type.
+    """
+    import re
+    line_ranges = []
+    
+    if not patch:
+        return line_ranges
+    
+    # Match hunk headers: @@ -old_start,old_count +new_start,new_count @@
+    hunk_pattern = r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@'
+    
+    for match in re.finditer(hunk_pattern, patch):
+        old_start = int(match.group(1))
+        old_count = int(match.group(2) or 1)
+        new_start = int(match.group(3))
+        new_count = int(match.group(4) or 1)
+        
+        # Determine change type
+        if old_count == 0:
+            change_type = 'added'
+        elif new_count == 0:
+            change_type = 'removed'
+        else:
+            change_type = 'modified'
+        
+        if new_count > 0:
+            line_ranges.append({
+                'start': new_start,
+                'end': new_start + new_count - 1,
+                'type': change_type
+            })
+    
+    return line_ranges
+
+
+def analyze_python_ast_from_content(source_code: str, file_path: str, line_ranges: list) -> dict:
+    """
+    Run AST analysis on Python source code to detect functions/classes.
+    Returns changed_nodes that overlap with the line_ranges.
+    """
+    import ast
+    
+    result = {
+        'all_nodes': [],
+        'changed_nodes': [],
+        'change_types': set()
+    }
+    
+    if not source_code:
+        return result
+    
+    try:
+        tree = ast.parse(source_code)
+    except SyntaxError as e:
+        print(f"[AST] Syntax error in {file_path}: {e}")
+        return result
+    
+    def get_decorator_names(decorators):
+        names = []
+        for dec in decorators:
+            if isinstance(dec, ast.Name):
+                names.append(dec.id)
+            elif isinstance(dec, ast.Attribute):
+                # Get full dotted name
+                parts = []
+                current = dec
+                while isinstance(current, ast.Attribute):
+                    parts.append(current.attr)
+                    current = current.value
+                if isinstance(current, ast.Name):
+                    parts.append(current.id)
+                names.append('.'.join(reversed(parts)))
+            elif isinstance(dec, ast.Call):
+                if isinstance(dec.func, ast.Name):
+                    names.append(dec.func.id)
+                elif isinstance(dec.func, ast.Attribute):
+                    parts = []
+                    current = dec.func
+                    while isinstance(current, ast.Attribute):
+                        parts.append(current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        parts.append(current.id)
+                    names.append('.'.join(reversed(parts)))
+        return names
+    
+    def overlaps_with_changes(start_line, end_line):
+        for r in line_ranges:
+            if not (end_line < r['start'] or start_line > r['end']):
+                return True
+        return False
+    
+    # API route decorators
+    api_decorators = {'route', 'get', 'post', 'put', 'delete', 'patch', 'app.route', 'app.get', 'app.post'}
+    
+    def visit_node(node, parent_name=None):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            decorators = get_decorator_names(node.decorator_list)
+            start_line = node.lineno
+            end_line = node.end_lineno or node.lineno
+            
+            node_info = {
+                'name': node.name,
+                'type': 'async_function' if isinstance(node, ast.AsyncFunctionDef) else 'function',
+                'start_line': start_line,
+                'end_line': end_line,
+                'parent': parent_name,
+                'decorators': decorators,
+                'is_api': any(d in api_decorators for d in decorators),
+                'parameters': [arg.arg for arg in node.args.args]
+            }
+            
+            result['all_nodes'].append(node_info)
+            
+            # Check if this node overlaps with changed lines
+            if overlaps_with_changes(start_line, end_line):
+                result['changed_nodes'].append(node_info)
+                if node_info['is_api']:
+                    result['change_types'].add('API_CHANGE')
+                else:
+                    result['change_types'].add('SERVICE_LOGIC_CHANGE')
+            
+            # Visit nested nodes
+            for child in ast.iter_child_nodes(node):
+                visit_node(child, node.name)
+        
+        elif isinstance(node, ast.ClassDef):
+            start_line = node.lineno
+            end_line = node.end_lineno or node.lineno
+            
+            node_info = {
+                'name': node.name,
+                'type': 'class',
+                'start_line': start_line,
+                'end_line': end_line,
+                'parent': parent_name,
+                'decorators': get_decorator_names(node.decorator_list)
+            }
+            
+            result['all_nodes'].append(node_info)
+            
+            if overlaps_with_changes(start_line, end_line):
+                result['changed_nodes'].append(node_info)
+                result['change_types'].add('CLASS_CHANGE')
+            
+            # Visit class body
+            for child in ast.iter_child_nodes(node):
+                visit_node(child, node.name)
+        
+        else:
+            for child in ast.iter_child_nodes(node):
+                visit_node(child, parent_name)
+    
+    visit_node(tree)
+    result['change_types'] = list(result['change_types'])
+    
+    return result
+
+
 async def analyze_with_github_api(token: str, owner: str, repo: str, before_sha: str, after_sha: str) -> dict:
     """
-    Fallback: Analyze commits using GitHub API when local git isn't available.
-    This is used on hosted environments like Render where local clones may not persist.
+    Enhanced: Analyze commits using GitHub API with full AST analysis.
+    Fetches file contents and parses AST to detect changed functions/classes.
+    This provides similar functionality to local git analysis.
     """
     try:
         github_api = GitHubAPI(token)
@@ -1779,25 +1942,95 @@ async def analyze_with_github_api(token: str, owner: str, repo: str, before_sha:
         
         # Convert GitHub API format to our analysis format
         changed_files = []
-        for f in comparison.get('files', []):
-            changed_files.append({
-                'path': f['path'],
-                'status': f['status'],
-                'additions': f.get('additions', 0),
-                'deletions': f.get('deletions', 0),
-                'diff': f.get('patch', ''),
-                'line_ranges': [],  # Not available from API
-                'changed_nodes': [],  # Can't do AST without file content
-                'change_types': []
-            })
+        all_changed_functions = []
+        all_change_types = set()
+        affected_components = set()
+        
+        async with httpx.AsyncClient() as client:
+            for f in comparison.get('files', []):
+                file_path = f['path']
+                file_status = f['status']
+                patch = f.get('patch', '')
+                
+                # Parse line ranges from patch
+                line_ranges = parse_patch_to_line_ranges(patch)
+                
+                changed_nodes = []
+                file_change_types = []
+                
+                # For Python files, fetch content and run AST analysis
+                if file_path.endswith('.py') and file_status != 'removed':
+                    try:
+                        # Fetch file content from GitHub
+                        content_response = await client.get(
+                            f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}",
+                            params={"ref": after_sha},
+                            headers={
+                                "Authorization": f"Bearer {token}",
+                                "Accept": "application/vnd.github.v3+json",
+                            },
+                        )
+                        
+                        if content_response.status_code == 200:
+                            content_data = content_response.json()
+                            if content_data.get('encoding') == 'base64':
+                                import base64
+                                source_code = base64.b64decode(content_data['content']).decode('utf-8')
+                                
+                                # Run AST analysis
+                                ast_result = analyze_python_ast_from_content(
+                                    source_code, file_path, line_ranges
+                                )
+                                
+                                changed_nodes = ast_result.get('changed_nodes', [])
+                                file_change_types = ast_result.get('change_types', [])
+                                
+                                # Collect all changed functions
+                                for node in changed_nodes:
+                                    if node['type'] in ('function', 'async_function'):
+                                        all_changed_functions.append({
+                                            'name': node['name'],
+                                            'file': file_path,
+                                            'is_api': node.get('is_api', False)
+                                        })
+                                
+                                all_change_types.update(file_change_types)
+                                
+                                # Extract component from path
+                                path_parts = file_path.split('/')
+                                if len(path_parts) > 1:
+                                    affected_components.add(path_parts[0])
+                    
+                    except Exception as ast_err:
+                        print(f"[GitHub API] AST analysis failed for {file_path}: {ast_err}")
+                
+                # Detect additional change types from file path
+                path_lower = file_path.lower()
+                if any(x in path_lower for x in ['.html', '.css', '.jsx', '.tsx', '/ui/', '/components/']):
+                    all_change_types.add('UI_CHANGE')
+                elif any(x in path_lower for x in ['.json', '.yaml', '.yml', '.env', 'config']):
+                    all_change_types.add('CONFIG_CHANGE')
+                elif '/api/' in path_lower or 'routes' in path_lower:
+                    all_change_types.add('API_CHANGE')
+                
+                changed_files.append({
+                    'path': file_path,
+                    'status': file_status,
+                    'additions': f.get('additions', 0),
+                    'deletions': f.get('deletions', 0),
+                    'diff': patch,
+                    'line_ranges': line_ranges,
+                    'changed_nodes': changed_nodes,
+                    'change_types': file_change_types
+                })
         
         return {
             'old_commit': before_sha,
             'new_commit': after_sha,
             'changed_files': changed_files,
-            'changed_functions': [],
-            'change_types': [],
-            'affected_components': [],
+            'changed_functions': all_changed_functions,
+            'change_types': list(all_change_types),
+            'affected_components': list(affected_components),
             'summary': {
                 'total_files': len(changed_files),
                 'added_files': sum(1 for f in changed_files if f['status'] == 'added'),
@@ -1805,11 +2038,14 @@ async def analyze_with_github_api(token: str, owner: str, repo: str, before_sha:
                 'deleted_files': sum(1 for f in changed_files if f['status'] == 'removed'),
                 'total_lines_added': sum(f.get('additions', 0) for f in changed_files),
                 'total_lines_deleted': sum(f.get('deletions', 0) for f in changed_files),
+                'functions_changed': len(all_changed_functions),
             },
-            'source': 'github_api'
+            'source': 'github_api_enhanced'
         }
     except Exception as e:
         print(f"[Pipeline] GitHub API analysis failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -1907,36 +2143,47 @@ async def auto_fetch_commits_for_repo(repo_full_name: str, token: str, limit: in
                     event_id = stored_event["id"]
                     synced_count += 1
                     
-                    # Process the event immediately - get diff and analyze
+                    # Process the event immediately - analyze with GitHub API
                     try:
-                        # Get diff from GitHub
-                        diff_response = await client.get(
-                            f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_sha}",
-                            headers={
-                                "Authorization": f"Bearer {token}",
-                                "Accept": "application/vnd.github.v3.diff",
-                            },
-                        )
-                        
-                        if diff_response.status_code == 200:
-                            diff_content = diff_response.text
+                        if parent_sha:
+                            # Use GitHub API to get proper analysis result
+                            analysis_result = await analyze_with_github_api(
+                                token, owner, repo, parent_sha, commit_sha
+                            )
                             
-                            # Run impact analysis
-                            features = extract_features_from_diff(diff_content)
-                            analysis_result = run_impact_analysis_from_features(features)
-                            
-                            # Store the result
+                            if analysis_result:
+                                # Extract features using proper function signature
+                                features = extract_features_from_diff(
+                                    analysis_result, repo_full_name, "main", commit_sha
+                                )
+                                impact_result = run_impact_analysis_from_features(features)
+                                
+                                # Store the result
+                                processing_result = {
+                                    "pipeline_status": "completed",
+                                    "diff_analysis": analysis_result,
+                                    "impact_analysis": impact_result
+                                }
+                                
+                                mark_webhook_event_processed(
+                                    event_id,
+                                    json.dumps(processing_result)
+                                )
+                                print(f"[AutoFetch] Analyzed commit {commit_sha[:7]}")
+                            else:
+                                print(f"[AutoFetch] No analysis result for {commit_sha[:7]}")
+                        else:
+                            # Initial commit - no parent to compare
                             processing_result = {
                                 "pipeline_status": "completed",
-                                "diff_analysis": features,
-                                "impact_analysis": analysis_result
+                                "diff_analysis": {"note": "Initial commit - no parent"},
+                                "impact_analysis": {"risk_level": "low", "risk_score": 0.1}
                             }
-                            
                             mark_webhook_event_processed(
                                 event_id,
                                 json.dumps(processing_result)
                             )
-                            print(f"[AutoFetch] Analyzed commit {commit_sha[:7]}")
+                            print(f"[AutoFetch] Marked initial commit {commit_sha[:7]}")
                     except Exception as proc_error:
                         print(f"[AutoFetch] Error processing commit {commit_sha}: {proc_error}")
         
