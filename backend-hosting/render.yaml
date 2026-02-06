@@ -25,4 +25,5 @@ services:
       - key: USE_GITHUB_API_FOR_DIFFS
         value: "true"
       - key: PYTHON_VERSION
-        value: "3.11"
+        # Render needs a fully qualified version; defaulting to latest (3.13) breaks psycopg2-binary.
+        value: "3.11.11"

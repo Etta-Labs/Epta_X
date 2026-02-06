@@ -653,17 +653,19 @@ async def set_auth_token(request: Request, body: TokenRequest):
     
     if existing_user:
         user_id = existing_user['id']
-        update_user({
-            'id': github_id,
-            'login': user_data.get('login'),
-            'name': user_data.get('name'),
-            'email': user_data.get('email'),
-            'avatar_url': user_data.get('avatar_url'),
-            'bio': user_data.get('bio'),
-            'location': user_data.get('location'),
-            'company': user_data.get('company'),
-            'blog': user_data.get('blog'),
-        })
+        update_user(
+            user_id,
+            {
+                'email': user_data.get('email'),
+                'name': user_data.get('name'),
+                'avatar_url': user_data.get('avatar_url'),
+                'bio': user_data.get('bio'),
+                'location': user_data.get('location'),
+                'company': user_data.get('company'),
+                'blog': user_data.get('blog'),
+                'is_active': True,
+            }
+        )
     else:
         new_user = create_user({
             'id': github_id,
@@ -2095,6 +2097,8 @@ async def receive_github_webhook(request: Request, background_tasks: BackgroundT
     
     # Extract repository info for secret lookup
     repo_full_name = payload.get("repository", {}).get("full_name")
+    repo_record = get_repository_by_full_name(repo_full_name) if repo_full_name else None
+    repository_id = repo_record.get("id") if repo_record else None
     
     if not repo_full_name:
         # Ping events might not have full repo info
@@ -2102,7 +2106,8 @@ async def receive_github_webhook(request: Request, background_tasks: BackgroundT
             raise HTTPException(status_code=400, detail="Missing repository information")
     
     # Look up webhook secret for this repository
-    webhook_secret = get_webhook_secret_hash(repo_full_name) if repo_full_name else None
+    webhook_record = get_webhook_by_repository(repository_id) if repository_id else None
+    webhook_secret = webhook_record.get("secret_hash") if webhook_record else None
     
     # If we don't have a secret stored, use the global fallback (for testing)
     if not webhook_secret:
@@ -2155,7 +2160,16 @@ async def receive_github_webhook(request: Request, background_tasks: BackgroundT
         event_data["commit_sha"] = pr_data.get("head", {}).get("sha")
     
     # Store the event
-    stored_event = create_webhook_event(event_data)
+    stored_event = create_webhook_event(
+        webhook_id=webhook_record.get("id") if webhook_record else None,
+        delivery_id=delivery_id,
+        event_type=event_type,
+        repository_full_name=repo_full_name or "",
+        payload=payload,
+        branch=event_data.get("branch"),
+        commit_sha=event_data.get("commit_sha"),
+        before_sha=event_data.get("before_sha"),
+    )
     
     if not stored_event:
         raise HTTPException(status_code=500, detail="Failed to store webhook event")
@@ -3665,9 +3679,9 @@ async def sync_commits_from_github(request: Request, repository: Optional[str] =
                         }
                         
                         # Create the event in database
-                        event_id = create_webhook_event(
+                        stored_event = create_webhook_event(
                             webhook_id=1,
-                            github_delivery_id=event_data["github_delivery_id"],
+                            delivery_id=event_data["github_delivery_id"],
                             event_type=event_data["event_type"],
                             repository_full_name=event_data["repository_full_name"],
                             branch=event_data["branch"],
@@ -3676,7 +3690,8 @@ async def sync_commits_from_github(request: Request, repository: Optional[str] =
                             payload=event_data["payload"]
                         )
                         
-                        if event_id:
+                        if stored_event:
+                            event_id = stored_event["id"]
                             synced_count += 1
                             
                             # Process the event immediately
