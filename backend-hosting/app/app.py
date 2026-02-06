@@ -87,6 +87,7 @@ ALLOWED_ORIGINS = [
     "https://epta-x.onrender.com",
     "https://ettax.onrender.com",
     "https://ettax.gowshik.online",
+    "https://etta.gowshik.in"
     "app://.",  # Electron app origin
     "file://",  # Electron file:// origin
 ]
