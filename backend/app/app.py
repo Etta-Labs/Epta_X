@@ -20,7 +20,7 @@ import secrets
 import hashlib
 import time
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 
@@ -34,12 +34,13 @@ from backend.app.database import (
     create_user, get_user_by_github_id, update_user, user_exists,
     get_user_settings, update_user_settings,
     create_repository, get_repository_by_github_id, get_repository_by_full_name,
-    get_user_repositories,
+    get_repository_by_full_name_for_user, get_user_repositories,
     create_webhook, get_webhook_by_repository, get_webhook_secret_hash,
     update_webhook_delivery, deactivate_webhook,
     create_webhook_event, get_webhook_event_by_delivery_id,
     get_unprocessed_webhook_events, mark_webhook_event_processed,
-    get_recent_webhook_events, get_db_connection
+    get_recent_webhook_events, get_recent_webhook_events_for_user,
+    get_webhook_event_by_id_for_user, get_db_connection
 )
 
 # Import GitHub API module
@@ -170,6 +171,41 @@ def _cleanup_expired_states():
     expired = [s for s, t in csrf_states.items() if current_time - t > CSRF_STATE_EXPIRY]
     for state in expired:
         csrf_states.pop(state, None)
+
+
+def normalize_timestamp(value):
+    """Normalize DB timestamps to ISO-8601 UTC (Z) strings for the frontend."""
+    if value is None:
+        return None
+    
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        
+        # Fast path: already ISO with Z
+        if s.endswith("Z") and "T" in s:
+            return s
+        
+        # SQLite timestamps are usually "YYYY-MM-DD HH:MM:SS"
+        if " " in s and "T" not in s:
+            s = s.replace(" ", "T")
+        
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return value
+    else:
+        return value
+    
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    
+    return dt.isoformat().replace("+00:00", "Z")
 
 # Mount frontend static files and config
 app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
@@ -366,6 +402,34 @@ async def get_current_user(request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def require_authenticated_user(request: Request) -> dict:
+    """Return the authenticated user record or raise HTTP errors."""
+    token = request.cookies.get("github_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+        )
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        github_data = response.json()
+        user = get_user_by_github_id(github_data.get('id'))
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found. Please complete setup.")
+        
+        return user
 
 
 @app.put("/api/user/settings")
@@ -1174,8 +1238,8 @@ async def connect_repository(owner: str, repo: str, request: Request, background
         # Get repo info from GitHub
         repo_info = await github_api.get_repo_info(owner, repo)
         
-        # Create or update repository in database
-        db_repo = get_repository_by_full_name(f"{owner}/{repo}")
+        # Create or update repository in database (scoped to user)
+        db_repo = get_repository_by_full_name_for_user(user['id'], f"{owner}/{repo}")
         if not db_repo:
             # create_repository expects (user_id, repo_data_dict)
             # repo_data expects keys: id, name, full_name, description, html_url, clone_url, default_branch, private
@@ -1272,14 +1336,10 @@ async def connect_repository(owner: str, repo: str, request: Request, background
 @app.get("/api/github/repos/{owner}/{repo}/webhook")
 async def get_repository_webhook(owner: str, repo: str, request: Request):
     """Get the webhook configuration for a repository"""
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     try:
+        user = await require_authenticated_user(request)
         # Get the repository from database
-        db_repo = get_repository_by_full_name(f"{owner}/{repo}")
+        db_repo = get_repository_by_full_name_for_user(user['id'], f"{owner}/{repo}")
         if not db_repo:
             return {"webhook": None, "exists": False}
         
@@ -1305,16 +1365,13 @@ async def get_repository_webhook(owner: str, repo: str, request: Request):
 @app.delete("/api/github/repos/{owner}/{repo}/webhook")
 async def delete_repository_webhook(owner: str, repo: str, request: Request):
     """Delete a webhook from a repository"""
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     try:
+        user = await require_authenticated_user(request)
+        token = request.cookies.get("github_token")
         github_api = GitHubAPI(token)
         
         # Get the repository and webhook from database
-        db_repo = get_repository_by_full_name(f"{owner}/{repo}")
+        db_repo = get_repository_by_full_name_for_user(user['id'], f"{owner}/{repo}")
         if not db_repo:
             raise HTTPException(status_code=404, detail="Repository not found")
         
@@ -2583,15 +2640,18 @@ async def get_webhook_events(
     limit: int = 50
 ):
     """Get recent webhook events, optionally filtered by repository"""
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    events = get_recent_webhook_events(repository, min(limit, 100))
+    user = await require_authenticated_user(request)
+    events = get_recent_webhook_events_for_user(user['id'], repository, min(limit, 100))
     
     return {
-        "events": events,
+        "events": [
+            {
+                **e,
+                "created_at": normalize_timestamp(e.get("created_at")),
+                "processed_at": normalize_timestamp(e.get("processed_at")),
+            }
+            for e in events
+        ],
         "count": len(events)
     }
 
@@ -2897,7 +2957,7 @@ async def get_connected_repositories(request: Request):
             webhook = get_webhook_by_repository(repo['id'])
             
             # Get last webhook event for this repo
-            events = get_recent_webhook_events(repo['full_name'], limit=1)
+            events = get_recent_webhook_events_for_user(user['id'], repo['full_name'], limit=1)
             last_event = events[0] if events else None
             
             result.append({
@@ -2911,7 +2971,7 @@ async def get_connected_repositories(request: Request):
                 "webhook_active": bool(webhook and webhook.get('is_active')),
                 "webhook_id": webhook['github_hook_id'] if webhook else None,
                 "last_commit": last_event.get('commit_sha') if last_event else None,
-                "last_event_at": last_event.get('created_at') if last_event else None,
+                "last_event_at": normalize_timestamp(last_event.get('created_at')) if last_event else None,
             })
         
         return {"repositories": result}
@@ -2933,12 +2993,13 @@ async def get_latest_event(full_name: str, request: Request):
     Get the latest webhook event ID and timestamp for polling.
     Frontend can poll this to know when to refresh.
     """
-    token = request.cookies.get("github_token")
+    user = await require_authenticated_user(request)
     
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    repo = get_repository_by_full_name_for_user(user['id'], full_name)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
     
-    events = get_recent_webhook_events(full_name, limit=1)
+    events = get_recent_webhook_events_for_user(user['id'], full_name, limit=1)
     
     if events:
         latest = events[0]
@@ -2947,7 +3008,7 @@ async def get_latest_event(full_name: str, request: Request):
             "event_id": latest['id'],
             "commit_sha": latest.get('commit_sha', '')[:7] if latest.get('commit_sha') else None,
             "processed": bool(latest.get('processed')),
-            "timestamp": latest.get('created_at')
+            "timestamp": normalize_timestamp(latest.get('created_at'))
         }
     else:
         return {
@@ -2996,21 +3057,18 @@ async def get_repository_analysis(full_name: str, request: Request, event_id: Op
         }
     }
     """
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     import json
     
     try:
+        user = await require_authenticated_user(request)
+        
         # Get repo from database
-        repo = get_repository_by_full_name(full_name)
+        repo = get_repository_by_full_name_for_user(user['id'], full_name)
         if not repo:
             raise HTTPException(status_code=404, detail="Repository not found")
         
         # Get recent webhook events with processing results
-        events = get_recent_webhook_events(full_name, limit=10)
+        events = get_recent_webhook_events_for_user(user['id'], full_name, limit=10)
         
         # Find the target event (specific or latest)
         latest_analysis = None
@@ -3022,7 +3080,7 @@ async def get_repository_analysis(full_name: str, request: Request, event_id: Op
                 if event.get('id') == event_id and event.get('processed') and event.get('processing_result'):
                     try:
                         latest_analysis = json.loads(event['processing_result'])
-                        webhook_timestamp = event.get('created_at')
+                        webhook_timestamp = normalize_timestamp(event.get('created_at'))
                         break
                     except:
                         continue
@@ -3031,7 +3089,7 @@ async def get_repository_analysis(full_name: str, request: Request, event_id: Op
                 if event.get('processed') and event.get('processing_result'):
                     try:
                         latest_analysis = json.loads(event['processing_result'])
-                        webhook_timestamp = event.get('created_at')
+                        webhook_timestamp = normalize_timestamp(event.get('created_at'))
                         break
                     except:
                         continue
@@ -3180,21 +3238,22 @@ async def get_repository_events(full_name: str, request: Request, limit: int = 5
     Get webhook events history for a repository.
     If no events exist and auto_fetch is True, fetches from GitHub.
     """
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     try:
-        events = get_recent_webhook_events(full_name, limit=limit)
+        user = await require_authenticated_user(request)
+        
+        repo = get_repository_by_full_name_for_user(user['id'], full_name)
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
+        events = get_recent_webhook_events_for_user(user['id'], full_name, limit=limit)
         
         # If no events exist, auto-fetch from GitHub
-        if not events and auto_fetch and token:
+        if not events and auto_fetch:
             print(f"[Events] No local events for {full_name}, auto-fetching from GitHub...")
-            synced = await auto_fetch_commits_for_repo(full_name, token, limit)
+            synced = await auto_fetch_commits_for_repo(full_name, request.cookies.get("github_token"), limit)
             if synced > 0:
                 # Reload events after sync
-                events = get_recent_webhook_events(full_name, limit=limit)
+                events = get_recent_webhook_events_for_user(user['id'], full_name, limit=limit)
                 print(f"[Events] After sync: {len(events)} events")
         
         return {
@@ -3206,7 +3265,7 @@ async def get_repository_events(full_name: str, request: Request, limit: int = 5
                     "branch": e.get('branch'),
                     "commit_sha": e.get('commit_sha'),
                     "processed": bool(e.get('processed')),
-                    "created_at": e.get('created_at')
+                    "created_at": normalize_timestamp(e.get('created_at'))
                 }
                 for e in events
             ]
@@ -3805,15 +3864,11 @@ async def get_recent_pipeline_results(request: Request, repository: Optional[str
     Get recent pipeline results (git diff + impact analysis) for dashboard display.
     Returns processed webhook events with their impact analysis results.
     """
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     import json
     
     try:
-        events = get_recent_webhook_events(repository, min(limit, 50))
+        user = await require_authenticated_user(request)
+        events = get_recent_webhook_events_for_user(user['id'], repository, min(limit, 50))
         
         results = []
         for event in events:
@@ -3828,8 +3883,8 @@ async def get_recent_pipeline_results(request: Request, repository: Optional[str
                         "branch": event.get('branch'),
                         "commit_sha": event.get('commit_sha'),
                         "event_type": event['event_type'],
-                        "processed_at": event.get('processed_at'),
-                        "created_at": event.get('created_at'),
+                        "processed_at": normalize_timestamp(event.get('processed_at')),
+                        "created_at": normalize_timestamp(event.get('created_at')),
                         "pipeline_status": result_data.get('pipeline_status', 'unknown'),
                         "impact_analysis": impact,
                         "has_error": 'error' in result_data
@@ -3851,16 +3906,13 @@ async def get_pipeline_stats(request: Request):
     """
     Get pipeline statistics for dashboard widgets.
     """
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     import json
     
     try:
+        user = await require_authenticated_user(request)
+        
         # Get recent events
-        events = get_recent_webhook_events(None, 100)
+        events = get_recent_webhook_events_for_user(user['id'], None, 100)
         
         total_analyses = 0
         high_risk_count = 0
@@ -3891,13 +3943,7 @@ async def get_pipeline_stats(request: Request):
                     pass
         
         # Get connected repos count
-        repos_count = 0
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) as count FROM repositories")
-            row = cursor.fetchone()
-            if row:
-                repos_count = row['count']
+        repos_count = len(get_user_repositories(user['id']))
         
         return {
             "connected_repos": repos_count,
@@ -3917,21 +3963,11 @@ async def get_pipeline_event_detail(event_id: int, request: Request):
     """
     Get detailed pipeline result for a specific event.
     """
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     import json
     
     try:
-        event = None
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM webhook_events WHERE id = ?", (event_id,))
-            row = cursor.fetchone()
-            if row:
-                event = dict(row)
+        user = await require_authenticated_user(request)
+        event = get_webhook_event_by_id_for_user(event_id, user['id'])
         
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -3950,8 +3986,8 @@ async def get_pipeline_event_detail(event_id: int, request: Request):
             "commit_sha": event.get('commit_sha'),
             "event_type": event['event_type'],
             "processed": bool(event.get('processed')),
-            "processed_at": event.get('processed_at'),
-            "created_at": event.get('created_at'),
+            "processed_at": normalize_timestamp(event.get('processed_at')),
+            "created_at": normalize_timestamp(event.get('created_at')),
             "diff_analysis": result_data.get('diff_analysis') if result_data else None,
             "impact_analysis": result_data.get('impact_analysis') if result_data else None,
             "pipeline_status": result_data.get('pipeline_status') if result_data else 'pending'
@@ -3976,25 +4012,23 @@ async def sync_commits_from_github(request: Request, repository: Optional[str] =
     This bypasses webhooks and fetches commits directly from GitHub.
     No artificial limit - fetches as many commits as specified.
     """
-    token = request.cookies.get("github_token")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     try:
+        user = await require_authenticated_user(request)
+        token = request.cookies.get("github_token")
+        
         synced_count = 0
         errors = []
         
         async with httpx.AsyncClient() as client:
             # Get user's repos if no specific repo provided
             if repository:
+                repo = get_repository_by_full_name_for_user(user['id'], repository)
+                if not repo:
+                    raise HTTPException(status_code=404, detail="Repository not found")
                 repos_to_sync = [repository]
             else:
                 # Get connected repos from database
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT full_name FROM repositories")
-                    repos_to_sync = [row[0] for row in cursor.fetchall()]
+                repos_to_sync = [r['full_name'] for r in get_user_repositories(user['id'])]
             
             if not repos_to_sync:
                 return {"synced": 0, "message": "No repositories connected"}

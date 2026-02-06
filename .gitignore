@@ -54,3 +54,4 @@ backend/data/
 frontend/static/assest/
 frontend/static/assets/
 test_files/
+*.md

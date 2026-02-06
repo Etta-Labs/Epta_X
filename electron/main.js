@@ -197,7 +197,7 @@ function createWindow() {
     });
 
     // Load the app - use fresh=true for setup mode to force clean state
-    const startUrl = forceSetup ? APP_URL + '/setup?fresh=true' : APP_URL + '/dashboard';
+    const startUrl = forceSetup ? APP_URL + '/setup?fresh=true' : APP_URL + '/';
     mainWindow.loadURL(startUrl);
 
     mainWindow.on('closed', () => {

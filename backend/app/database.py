@@ -425,6 +425,18 @@ def get_repository_by_full_name(full_name: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+def get_repository_by_full_name_for_user(user_id: int, full_name: str) -> Optional[dict]:
+    """Get a repository by full name for a specific user"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM repositories WHERE user_id = ? AND full_name = ?",
+            (user_id, full_name)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
 def get_user_repositories(user_id: int) -> list:
     """Get all repositories for a user"""
     with get_db_connection() as conn:
@@ -646,5 +658,46 @@ def get_recent_webhook_events(repository_full_name: str = None,
             """, (limit,))
         
         return [dict(row) for row in cursor.fetchall()]
+
+
+def get_recent_webhook_events_for_user(user_id: int,
+                                       repository_full_name: Optional[str] = None,
+                                       limit: int = 50) -> list:
+    """Get recent webhook events for a user's repositories, optionally filtered by repository"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        if repository_full_name:
+            cursor.execute("""
+                SELECT e.* FROM webhook_events e
+                JOIN repositories r ON r.full_name = e.repository_full_name
+                WHERE r.user_id = ? AND e.repository_full_name = ?
+                ORDER BY e.created_at DESC
+                LIMIT ?
+            """, (user_id, repository_full_name, limit))
+        else:
+            cursor.execute("""
+                SELECT e.* FROM webhook_events e
+                JOIN repositories r ON r.full_name = e.repository_full_name
+                WHERE r.user_id = ?
+                ORDER BY e.created_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+        
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_webhook_event_by_id_for_user(event_id: int, user_id: int) -> Optional[dict]:
+    """Get a webhook event by ID for a specific user"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT e.* FROM webhook_events e
+            JOIN repositories r ON r.full_name = e.repository_full_name
+            WHERE e.id = ? AND r.user_id = ?
+            LIMIT 1
+        """, (event_id, user_id))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 # Database is initialized via app.py startup event
